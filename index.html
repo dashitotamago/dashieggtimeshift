@@ -237,6 +237,7 @@ const state = {
   confirmed: {},
   myRecord: null, // { rows, hoursTotal, wageTotal, lateCount }
   myRecordLoading: false,
+  myRecordError: false,
 };
 
 function isWeekendType(d) {
@@ -312,71 +313,79 @@ function timeLabel(d) { return `${String(d.getHours()).padStart(2, "0")}:${Strin
 
 async function loadMyRecord() {
   if (!state.staffName) return;
-  state.myRecordLoading = true; render();
-
-  const now = new Date();
-  const mKey = monthKey(now);
-  const cfg = await apiGet(`config:${mKey}`);
-  const slotsCfg = await apiGet(`slotsConfig`);
-  const conf = await apiGet(`confirmed:${mKey}`);
-  const holidays = (cfg && cfg.holidays) || [];
-  const weekdaySlotsM = (slotsCfg && slotsCfg.weekday && slotsCfg.weekday.length) ? slotsCfg.weekday : DEFAULT_WEEKDAY_SLOTS;
-  const weekendSlotsM = (slotsCfg && slotsCfg.weekend && slotsCfg.weekend.length) ? slotsCfg.weekend : DEFAULT_WEEKEND_SLOTS;
-  const confirmedM = conf || {};
-  const myWage = wageOf(state.staffName);
-
-  const dates = daysInMonth(now.getFullYear(), now.getMonth());
-  const rows = [];
-  let hoursTotal = 0, lateCount = 0;
-
-  for (const d of dates) {
-    if (d > now) continue;
-    const dKey = dateKey(d);
-    const records = await apiGet(`punch:${dKey}:${state.staffName}`);
-    if (!records || !records.length) continue;
-
-    const hours = calcHoursForPunches(records);
-    hoursTotal += hours;
-
-    const dow = d.getDay();
-    const weekend = dow === 0 || dow === 6 || holidays.includes(dKey);
-    const slots = weekend ? weekendSlotsM : weekdaySlotsM;
-    const dayConf = confirmedM[dKey] || {};
-    let scheduledStartMin = null;
-    for (const s of slots) {
-      if (dayConf[s.id] === state.staffName) {
-        const sm = hmToMinutes(s.start);
-        if (scheduledStartMin === null || sm < scheduledStartMin) scheduledStartMin = sm;
-      }
-    }
-    const inTime = firstInTime(records);
-    let isLate = false, lateMinutes = 0;
-    if (scheduledStartMin !== null && inTime) {
-      const actualMin = inTime.getHours() * 60 + inTime.getMinutes();
-      lateMinutes = actualMin - scheduledStartMin;
-      isLate = lateMinutes > CONFIG.LATE_GRACE_MINUTES;
-    }
-    if (isLate) lateCount++;
-
-    const inRecs = records.filter((r) => r.type === "in").sort((a, b) => new Date(a.time) - new Date(b.time));
-    const outRecs = records.filter((r) => r.type === "out").sort((a, b) => new Date(a.time) - new Date(b.time));
-    const inRec = inRecs.length ? inRecs[0] : null;
-    const outRec = outRecs.length ? outRecs[outRecs.length - 1] : null;
-
-    rows.push({
-      date: d,
-      dKey,
-      hours,
-      inLabel: inRec ? timeLabel(new Date(inRec.time)) : "-",
-      outLabel: outRec ? timeLabel(new Date(outRec.time)) : "-",
-      isLate,
-      lateMinutes,
-    });
-  }
-
-  state.myRecord = { rows, hoursTotal, wageTotal: hoursTotal * myWage, lateCount, monthLabel: `${now.getFullYear()}年${now.getMonth() + 1}月` };
-  state.myRecordLoading = false;
+  state.myRecordLoading = true;
+  state.myRecordError = false;
   render();
+
+  try {
+    const now = new Date();
+    const mKey = monthKey(now);
+    const cfg = await apiGet(`config:${mKey}`);
+    const slotsCfg = await apiGet(`slotsConfig`);
+    const conf = await apiGet(`confirmed:${mKey}`);
+    const holidays = (cfg && cfg.holidays) || [];
+    const weekdaySlotsM = (slotsCfg && slotsCfg.weekday && slotsCfg.weekday.length) ? slotsCfg.weekday : DEFAULT_WEEKDAY_SLOTS;
+    const weekendSlotsM = (slotsCfg && slotsCfg.weekend && slotsCfg.weekend.length) ? slotsCfg.weekend : DEFAULT_WEEKEND_SLOTS;
+    const confirmedM = conf || {};
+    const myWage = wageOf(state.staffName);
+
+    const dates = daysInMonth(now.getFullYear(), now.getMonth());
+    const rows = [];
+    let hoursTotal = 0, lateCount = 0;
+
+    for (const d of dates) {
+      if (d > now) continue;
+      const dKey = dateKey(d);
+      const records = await apiGet(`punch:${dKey}:${state.staffName}`);
+      if (!records || !records.length) continue;
+
+      const hours = calcHoursForPunches(records);
+      hoursTotal += hours;
+
+      const dow = d.getDay();
+      const weekend = dow === 0 || dow === 6 || holidays.includes(dKey);
+      const slots = weekend ? weekendSlotsM : weekdaySlotsM;
+      const dayConf = confirmedM[dKey] || {};
+      let scheduledStartMin = null;
+      for (const s of slots) {
+        if (dayConf[s.id] === state.staffName) {
+          const sm = hmToMinutes(s.start);
+          if (scheduledStartMin === null || sm < scheduledStartMin) scheduledStartMin = sm;
+        }
+      }
+      const inTime = firstInTime(records);
+      let isLate = false, lateMinutes = 0;
+      if (scheduledStartMin !== null && inTime) {
+        const actualMin = inTime.getHours() * 60 + inTime.getMinutes();
+        lateMinutes = actualMin - scheduledStartMin;
+        isLate = lateMinutes > CONFIG.LATE_GRACE_MINUTES;
+      }
+      if (isLate) lateCount++;
+
+      const inRecs = records.filter((r) => r.type === "in").sort((a, b) => new Date(a.time) - new Date(b.time));
+      const outRecs = records.filter((r) => r.type === "out").sort((a, b) => new Date(a.time) - new Date(b.time));
+      const inRec = inRecs.length ? inRecs[0] : null;
+      const outRec = outRecs.length ? outRecs[outRecs.length - 1] : null;
+
+      rows.push({
+        date: d,
+        dKey,
+        hours,
+        inLabel: inRec ? timeLabel(new Date(inRec.time)) : "-",
+        outLabel: outRec ? timeLabel(new Date(outRec.time)) : "-",
+        isLate,
+        lateMinutes,
+      });
+    }
+
+    state.myRecord = { rows, hoursTotal, wageTotal: hoursTotal * myWage, lateCount, monthLabel: `${now.getFullYear()}年${now.getMonth() + 1}月` };
+  } catch (err) {
+    console.error("loadMyRecord failed", err);
+    state.myRecordError = true;
+  } finally {
+    state.myRecordLoading = false;
+    render();
+  }
 }
 
 function flash(msg) {
@@ -776,8 +785,14 @@ function assignRowHtml(label, value, options, dKey, field) {
 }
 
 function renderMyRecordTab() {
-  if (state.myRecordLoading || !state.myRecord) {
+  if (state.myRecordLoading) {
     return `<div class="center-msg">読み込み中…</div>`;
+  }
+  if (state.myRecordError || !state.myRecord) {
+    return `<div class="center-msg">
+      <p>読み込みに失敗しました</p>
+      <button class="submit-btn" style="margin-top:12px" data-action="retryMyRecord">再読み込み</button>
+    </div>`;
   }
   const rec = state.myRecord;
   let rows = "";
@@ -992,7 +1007,12 @@ document.addEventListener("click", (e) => {
   const action = el.dataset.action;
   if (action === "prevMonth") changeMonth(-1);
   else if (action === "nextMonth") changeMonth(1);
-  else if (action === "setTab") { state.tab = el.dataset.tab; render(); }
+  else if (action === "setTab") {
+    state.tab = el.dataset.tab;
+    render();
+    if (state.tab === "myrecord" && !state.myRecord && !state.myRecordLoading) loadMyRecord();
+  }
+  else if (action === "retryMyRecord") loadMyRecord();
   else if (action === "toggleSlot") toggleSlot(el.dataset.date, el.dataset.slot);
   else if (action === "submit") submitMyShift();
   else if (action === "toggleHoliday") toggleHoliday(el.dataset.date);
