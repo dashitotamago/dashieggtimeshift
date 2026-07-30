@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>打刻乖離率</title>
+<title>打刻管理</title>
 <style>
   :root {
     --bg: #F6F3EC; --ink: #22282F; --border: #DED7C6;
@@ -397,7 +397,7 @@ function render() {
   if (!state.authed) {
     if (state.showForgot) {
       root.innerHTML = `
-        <header><h1 class="disp">📊 打刻乖離率</h1></header>
+        <header><h1 class="disp">📊 打刻管理</h1></header>
         <div class="wrap" style="max-width:360px">
           <div class="card">
             <div style="font-size:14px;font-weight:700;margin-bottom:12px">🔑 パスワードの再設定</div>
@@ -421,7 +421,7 @@ function render() {
       return;
     }
     root.innerHTML = `
-      <header><h1 class="disp">📊 打刻乖離率</h1></header>
+      <header><h1 class="disp">📊 打刻管理</h1></header>
       <div class="wrap" style="max-width:360px">
         <div class="card">
           <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px">管理者パスワード</label>
@@ -542,7 +542,7 @@ function render() {
   }
 
   root.innerHTML = `
-    <header><h1 class="disp">📊 打刻乖離率</h1></header>
+    <header><h1 class="disp">📊 打刻管理</h1></header>
     <div class="wrap">
       ${lateSummaryHtml}
       <div class="month-nav">
