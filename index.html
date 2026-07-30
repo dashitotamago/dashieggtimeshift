@@ -463,6 +463,8 @@ async function changeAdminPassword() {
   state.showAdminPasswordChange = false;
   flash("管理者パスワードを変更しました");
 }
+
+async function requestResetCode() {
   state.saving = true; render();
   await apiAction({ action: "sendResetCode" });
   state.saving = false;
