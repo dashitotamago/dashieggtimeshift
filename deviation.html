@@ -36,6 +36,10 @@
   .summary-item { flex: 1; min-width: 140px; }
   .summary-item .label { font-size: 11px; color: var(--muted); }
   .summary-item .value { font-size: 20px; font-weight: 700; }
+  .slot-editor-row { display: flex; gap: 8px; align-items: center; margin-top: 8px; flex-wrap: wrap; }
+  .remove-btn { background: none; border: 1px solid var(--rose); color: var(--rose); border-radius: 4px; padding: 6px 10px; font-size: 12px; cursor: pointer; flex-shrink: 0; }
+  .remove-btn-plain { background: none; border: none; color: var(--blue); text-decoration: underline; font-size: 12px; cursor: pointer; padding: 0; }
+  .add-btn { background: var(--orange); color: #fff; border: none; border-radius: 4px; padding: 8px 14px; font-size: 13px; cursor: pointer; margin-top: 8px; }
 </style>
 </head>
 <body>
@@ -88,6 +92,16 @@ async function apiGet(key) {
     return JSON.parse(data.value);
   } catch (e) { console.error("apiGet failed", key, e); return null; }
 }
+async function apiSet(key, value) {
+  try {
+    await fetch(CONFIG.API_URL, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify({ action: "set", key, value: JSON.stringify(value) }),
+    });
+    return true;
+  } catch (e) { console.error("apiSet failed", key, e); return false; }
+}
 async function apiList(prefix) {
   try {
     const res = await fetch(`${CONFIG.API_URL}?action=list&prefix=${encodeURIComponent(prefix)}`);
@@ -124,6 +138,8 @@ const state = {
   showForgot: false,
   forgotStep: "request",
   forgotFlash: "",
+  editDate: null,
+  editRecords: [],
 };
 
 function isWeekendType(d) {
@@ -280,6 +296,54 @@ function ratePill(row) {
 
 function effectiveAdminPassword() { return state.adminPasswordValue != null ? state.adminPasswordValue : CONFIG.ADMIN_PASSWORD; }
 
+function timeFromIso(iso) {
+  const d = new Date(iso);
+  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
+function combineDateTime(dateStr, timeStr) {
+  return new Date(`${dateStr}T${timeStr}:00`).toISOString();
+}
+
+function openEditPunch(dKey) {
+  const existing = state.punchByDate[`${dKey}|${state.selectedName}`] || [];
+  state.editDate = dKey;
+  state.editRecords = existing
+    .map((r) => ({ type: r.type, time: r.time }))
+    .sort((a, b) => new Date(a.time) - new Date(b.time));
+  render();
+}
+function closeEditPunch() {
+  state.editDate = null;
+  state.editRecords = [];
+  render();
+}
+function editRecordTypeChange(index, value) {
+  state.editRecords[index].type = value;
+}
+function editRecordTimeChange(index, value) {
+  state.editRecords[index].time = combineDateTime(state.editDate, value);
+}
+function removeEditRecord(index) {
+  state.editRecords.splice(index, 1);
+  render();
+}
+function addEditRecord() {
+  state.editRecords.push({ type: "in", time: combineDateTime(state.editDate, "09:00") });
+  render();
+}
+async function saveEditPunch() {
+  const sorted = [...state.editRecords].sort((a, b) => new Date(a.time) - new Date(b.time));
+  const key = `punch:${state.editDate}:${state.selectedName}`;
+  state.saving = true; render();
+  await apiSet(key, sorted);
+  state.punchByDate[`${state.editDate}|${state.selectedName}`] = sorted;
+  state.saving = false;
+  state.editDate = null;
+  state.editRecords = [];
+  computeRows();
+  render();
+}
+
 function adminLogin() {
   const input = document.getElementById("devPasswordInput");
   const value = input ? input.value : "";
@@ -396,7 +460,32 @@ function render() {
         <td class="num">${r.hasSchedule && r.hasPunch ? (r.diff >= 0 ? "+" : "") + r.diff.toFixed(1) + "h" : "-"}</td>
         <td class="num">${ratePill(r)}</td>
         <td class="num">${r.isLate ? `<span class="pill pill-red">遅刻 ${r.lateMinutes}分</span>` : ""}</td>
+        <td class="num"><button class="remove-btn-plain" onclick="openEditPunch('${r.dKey}')">修正</button></td>
       </tr>`;
+      if (state.editDate === r.dKey) {
+        let recRows = "";
+        state.editRecords.forEach((rec, i) => {
+          recRows += `<div class="slot-editor-row">
+            <select onchange="editRecordTypeChange(${i}, this.value)" style="flex:1">
+              <option value="in" ${rec.type === "in" ? "selected" : ""}>出勤</option>
+              <option value="out" ${rec.type === "out" ? "selected" : ""}>退勤</option>
+            </select>
+            <input type="time" value="${timeFromIso(rec.time)}" onchange="editRecordTimeChange(${i}, this.value)" style="width:110px" />
+            <button class="remove-btn" onclick="removeEditRecord(${i})">削除</button>
+          </div>`;
+        });
+        rowsHtml += `<tr><td colspan="7">
+          <div class="card" style="background:#FBF8F2;margin:8px 0">
+            <div style="font-size:13px;font-weight:700;margin-bottom:4px">🛠 ${r.date.getMonth() + 1}/${r.date.getDate()}の打刻を修正（${esc(state.selectedName)}）</div>
+            ${recRows || `<p style="font-size:12px;color:var(--muted2)">打刻記録がありません</p>`}
+            <button class="add-btn" onclick="addEditRecord()">＋ 打刻を追加</button>
+            <div style="display:flex;gap:8px;margin-top:12px">
+              <button class="submit-btn" style="margin-top:0;flex:1;justify-content:center" onclick="saveEditPunch()" ${state.saving ? "disabled" : ""}>${state.saving ? "保存中…" : "保存する"}</button>
+              <button class="remove-btn" style="padding:0 16px" onclick="closeEditPunch()">キャンセル</button>
+            </div>
+          </div>
+        </td></tr>`;
+      }
     }
     const monthDiff = totalActual - totalScheduled;
     const monthRate = totalScheduled > 0 ? (monthDiff / totalScheduled) * 100 : 0;
@@ -418,8 +507,8 @@ function render() {
       </div>
       <div class="card">
         <table>
-          <thead><tr><th>日付</th><th class="num">予定</th><th class="num">実績</th><th class="num">差分</th><th class="num">乖離率</th><th class="num">遅刻</th></tr></thead>
-          <tbody>${rowsHtml || `<tr><td colspan="6" style="text-align:center;color:var(--muted2)">この月はデータがありません</td></tr>`}</tbody>
+          <thead><tr><th>日付</th><th class="num">予定</th><th class="num">実績</th><th class="num">差分</th><th class="num">乖離率</th><th class="num">遅刻</th><th class="num">修正</th></tr></thead>
+          <tbody>${rowsHtml || `<tr><td colspan="7" style="text-align:center;color:var(--muted2)">この月はデータがありません</td></tr>`}</tbody>
         </table>
         <p class="note">乖離率 = (実績時間 − 予定時間) ÷ 予定時間 × 100%。±10%以内は緑、実績が少ない(早退・欠勤など)は赤、実績が多い(残業など)は青。遅刻は予定の出勤時刻より${CONFIG.LATE_GRACE_MINUTES}分を超えて遅れて出勤打刻した日を数えています。</p>
       </div>
@@ -473,6 +562,13 @@ window.showForgot = showForgot;
 window.backToLogin = backToLogin;
 window.requestResetCode = requestResetCode;
 window.submitResetCode = submitResetCode;
+window.openEditPunch = openEditPunch;
+window.closeEditPunch = closeEditPunch;
+window.editRecordTypeChange = editRecordTypeChange;
+window.editRecordTimeChange = editRecordTimeChange;
+window.removeEditRecord = removeEditRecord;
+window.addEditRecord = addEditRecord;
+window.saveEditPunch = saveEditPunch;
 
 (async function boot() {
   const storedPw = await apiGet("adminPassword");
