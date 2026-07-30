@@ -204,9 +204,9 @@ const state = {
   saving: false,
   flash: "",
   adminAuthed: sessionStorage.getItem("adminAuthed") === "1",
-  adminPasswordValue: null, // fetched from backend; null = not yet loaded
+  adminPasswordValue: null,
   showForgotPassword: false,
-  forgotStep: "request", // "request" | "verify"
+  forgotStep: "request",
   forgotFlash: "",
   showAdminPasswordChange: false,
   staffAuthed: sessionStorage.getItem("staffAuthed") === "1",
@@ -218,7 +218,7 @@ const state = {
   weekendSlots: DEFAULT_WEEKEND_SLOTS,
   mySubmission: {},
   allSubmissions: {},
-  staffDirectory: [], // [{name, wage, password}]
+  staffDirectory: [],
   confirmed: {},
 };
 
@@ -344,7 +344,6 @@ async function saveConfirmed() {
   flash("確定シフトを保存しました");
 }
 
-// ---- slot (shift time / headcount) editing ----
 async function saveSlotsConfig() {
   state.saving = true; render();
   await apiSet(`slotsConfig`, { weekday: state.weekdaySlots, weekend: state.weekendSlots });
@@ -369,7 +368,6 @@ function updateSlotField(type, id, field, value) {
   else state.weekendSlots = apply(state.weekendSlots);
 }
 
-// ---- staff account management (admin) ----
 async function saveStaffDirectory() {
   state.saving = true; render();
   await apiSet(`staffList`, state.staffDirectory);
@@ -388,7 +386,6 @@ function updateStaffField(index, field, value) {
   state.staffDirectory = state.staffDirectory.map((s, i) => (i === index ? { ...s, [field]: value } : s));
 }
 
-// ---- staff login (ID = name, password) ----
 async function staffLogin() {
   const nameSel = document.getElementById("staffLoginName");
   const pwInput = document.getElementById("staffLoginPassword");
@@ -499,7 +496,6 @@ async function submitResetCode() {
   }
 }
 
-// ---- rendering ----
 function dateLabelHtml(d, weekend) {
   const dow = d.getDay();
   const color = dow === 0 ? "var(--rose)" : dow === 6 ? "var(--green)" : "var(--ink)";
@@ -858,7 +854,6 @@ function render() {
   `;
 }
 
-// ---- event delegation ----
 document.addEventListener("click", (e) => {
   const el = e.target.closest("[data-action]");
   if (!el) return;
@@ -907,7 +902,6 @@ window.addEventListener("hashchange", () => {
   render();
 });
 
-// ---- boot ----
 (async function init() {
   if (!CONFIG.API_URL || CONFIG.API_URL.indexOf("YOUR_APPS_SCRIPT") === 0) { render(); return; }
   state.loading = true;
