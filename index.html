@@ -114,6 +114,7 @@
 const CONFIG = {
   API_URL: "https://script.google.com/macros/s/AKfycbxyNlwkwbq7aPJiyotnpky1mVZshrfvT4Pa7hiapQGWSeKzz_CeGAxeCmWKRrIEp9pS/exec",
   ADMIN_PASSWORD: "0310",
+  LATE_GRACE_MINUTES: 1,
 };
 
 const WEEKDAY_JP = ["日", "月", "火", "水", "木", "金", "土"];
@@ -158,6 +159,20 @@ function slotHours(slot) {
   return mins / 60;
 }
 function fmtYen(n) { return "¥" + Math.round(n).toLocaleString("ja-JP"); }
+function hmDiffMinutes(aIso, bIso) { return (new Date(bIso) - new Date(aIso)) / 60000; }
+function calcHoursForPunches(records) {
+  const sorted = [...records].sort((a, b) => new Date(a.time) - new Date(b.time));
+  const inRec = sorted.find((r) => r.type === "in");
+  const outRecs = sorted.filter((r) => r.type === "out");
+  const outRec = outRecs.length ? outRecs[outRecs.length - 1] : null;
+  if (!inRec || !outRec) return 0;
+  const grossMin = hmDiffMinutes(inRec.time, outRec.time);
+  return grossMin > 0 ? grossMin / 60 : 0;
+}
+function firstInTime(records) {
+  const sorted = records.filter((r) => r.type === "in").sort((a, b) => new Date(a.time) - new Date(b.time));
+  return sorted.length ? new Date(sorted[0].time) : null;
+}
 
 async function apiGet(key) {
   try {
@@ -204,9 +219,9 @@ const state = {
   saving: false,
   flash: "",
   adminAuthed: sessionStorage.getItem("adminAuthed") === "1",
-  adminPasswordValue: null,
+  adminPasswordValue: null, // fetched from backend; null = not yet loaded
   showForgotPassword: false,
-  forgotStep: "request",
+  forgotStep: "request", // "request" | "verify"
   forgotFlash: "",
   showAdminPasswordChange: false,
   staffAuthed: sessionStorage.getItem("staffAuthed") === "1",
@@ -218,8 +233,10 @@ const state = {
   weekendSlots: DEFAULT_WEEKEND_SLOTS,
   mySubmission: {},
   allSubmissions: {},
-  staffDirectory: [],
+  staffDirectory: [], // [{name, wage, password}]
   confirmed: {},
+  myRecord: null, // { rows, hoursTotal, wageTotal, lateCount }
+  myRecordLoading: false,
 };
 
 function isWeekendType(d) {
@@ -291,6 +308,77 @@ async function loadMonthData() {
   render();
 }
 
+function timeLabel(d) { return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`; }
+
+async function loadMyRecord() {
+  if (!state.staffName) return;
+  state.myRecordLoading = true; render();
+
+  const now = new Date();
+  const mKey = monthKey(now);
+  const cfg = await apiGet(`config:${mKey}`);
+  const slotsCfg = await apiGet(`slotsConfig`);
+  const conf = await apiGet(`confirmed:${mKey}`);
+  const holidays = (cfg && cfg.holidays) || [];
+  const weekdaySlotsM = (slotsCfg && slotsCfg.weekday && slotsCfg.weekday.length) ? slotsCfg.weekday : DEFAULT_WEEKDAY_SLOTS;
+  const weekendSlotsM = (slotsCfg && slotsCfg.weekend && slotsCfg.weekend.length) ? slotsCfg.weekend : DEFAULT_WEEKEND_SLOTS;
+  const confirmedM = conf || {};
+  const myWage = wageOf(state.staffName);
+
+  const dates = daysInMonth(now.getFullYear(), now.getMonth());
+  const rows = [];
+  let hoursTotal = 0, lateCount = 0;
+
+  for (const d of dates) {
+    if (d > now) continue;
+    const dKey = dateKey(d);
+    const records = await apiGet(`punch:${dKey}:${state.staffName}`);
+    if (!records || !records.length) continue;
+
+    const hours = calcHoursForPunches(records);
+    hoursTotal += hours;
+
+    const dow = d.getDay();
+    const weekend = dow === 0 || dow === 6 || holidays.includes(dKey);
+    const slots = weekend ? weekendSlotsM : weekdaySlotsM;
+    const dayConf = confirmedM[dKey] || {};
+    let scheduledStartMin = null;
+    for (const s of slots) {
+      if (dayConf[s.id] === state.staffName) {
+        const sm = hmToMinutes(s.start);
+        if (scheduledStartMin === null || sm < scheduledStartMin) scheduledStartMin = sm;
+      }
+    }
+    const inTime = firstInTime(records);
+    let isLate = false, lateMinutes = 0;
+    if (scheduledStartMin !== null && inTime) {
+      const actualMin = inTime.getHours() * 60 + inTime.getMinutes();
+      lateMinutes = actualMin - scheduledStartMin;
+      isLate = lateMinutes > CONFIG.LATE_GRACE_MINUTES;
+    }
+    if (isLate) lateCount++;
+
+    const inRecs = records.filter((r) => r.type === "in").sort((a, b) => new Date(a.time) - new Date(b.time));
+    const outRecs = records.filter((r) => r.type === "out").sort((a, b) => new Date(a.time) - new Date(b.time));
+    const inRec = inRecs.length ? inRecs[0] : null;
+    const outRec = outRecs.length ? outRecs[outRecs.length - 1] : null;
+
+    rows.push({
+      date: d,
+      dKey,
+      hours,
+      inLabel: inRec ? timeLabel(new Date(inRec.time)) : "-",
+      outLabel: outRec ? timeLabel(new Date(outRec.time)) : "-",
+      isLate,
+      lateMinutes,
+    });
+  }
+
+  state.myRecord = { rows, hoursTotal, wageTotal: hoursTotal * myWage, lateCount, monthLabel: `${now.getFullYear()}年${now.getMonth() + 1}月` };
+  state.myRecordLoading = false;
+  render();
+}
+
 function flash(msg) {
   state.flash = msg;
   render();
@@ -344,6 +432,7 @@ async function saveConfirmed() {
   flash("確定シフトを保存しました");
 }
 
+// ---- slot (shift time / headcount) editing ----
 async function saveSlotsConfig() {
   state.saving = true; render();
   await apiSet(`slotsConfig`, { weekday: state.weekdaySlots, weekend: state.weekendSlots });
@@ -368,6 +457,7 @@ function updateSlotField(type, id, field, value) {
   else state.weekendSlots = apply(state.weekendSlots);
 }
 
+// ---- staff account management (admin) ----
 async function saveStaffDirectory() {
   state.saving = true; render();
   await apiSet(`staffList`, state.staffDirectory);
@@ -386,6 +476,7 @@ function updateStaffField(index, field, value) {
   state.staffDirectory = state.staffDirectory.map((s, i) => (i === index ? { ...s, [field]: value } : s));
 }
 
+// ---- staff login (ID = name, password) ----
 async function staffLogin() {
   const nameSel = document.getElementById("staffLoginName");
   const pwInput = document.getElementById("staffLoginPassword");
@@ -402,6 +493,7 @@ async function staffLogin() {
   sessionStorage.setItem("staffAuthed", "1");
   sessionStorage.setItem("staffAuthedName", name);
   loadMonthData();
+  loadMyRecord();
 }
 function staffLogout() {
   state.staffAuthed = false;
@@ -496,6 +588,7 @@ async function submitResetCode() {
   }
 }
 
+// ---- rendering ----
 function dateLabelHtml(d, weekend) {
   const dow = d.getDay();
   const color = dow === 0 ? "var(--rose)" : dow === 6 ? "var(--green)" : "var(--ink)";
@@ -682,6 +775,42 @@ function assignRowHtml(label, value, options, dKey, field) {
   </div>`;
 }
 
+function renderMyRecordTab() {
+  if (state.myRecordLoading || !state.myRecord) {
+    return `<div class="center-msg">読み込み中…</div>`;
+  }
+  const rec = state.myRecord;
+  let rows = "";
+  for (const r of rec.rows) {
+    const dow = r.date.getDay();
+    rows += `<tr>
+      <td>${r.date.getDate()}日(${WEEKDAY_JP[dow]})</td>
+      <td>${r.inLabel}</td>
+      <td>${r.outLabel}</td>
+      <td>${r.hours.toFixed(1)}h</td>
+      <td>${r.isLate ? `<span style="color:var(--rose);font-weight:700">遅刻 ${r.lateMinutes}分</span>` : ""}</td>
+    </tr>`;
+  }
+  return `
+    <div class="card">
+      <div style="font-size:13px;font-weight:700;margin-bottom:8px">${esc(rec.monthLabel)}の記録（${esc(state.staffName)}）</div>
+      <div style="display:flex;gap:16px;flex-wrap:wrap">
+        <div><div style="font-size:11px;color:var(--muted)">労働時間</div><div style="font-size:20px;font-weight:700">${rec.hoursTotal.toFixed(1)}h</div></div>
+        <div><div style="font-size:11px;color:var(--muted)">現状の給与見込み</div><div style="font-size:20px;font-weight:700">${fmtYen(rec.wageTotal)}</div></div>
+        <div><div style="font-size:11px;color:var(--muted)">遅刻回数</div><div style="font-size:20px;font-weight:700">${rec.lateCount}回</div></div>
+      </div>
+      <p style="font-size:11px;color:var(--muted2);margin-top:8px">給与見込みは、今月これまでの打刻から計算した時給ベースの概算です。実際の支給額とは異なる場合があります。</p>
+    </div>
+    <div class="card" style="margin-top:12px">
+      <div style="font-size:13px;font-weight:700;margin-bottom:8px">打刻履歴</div>
+      <table>
+        <thead><tr><th>日付</th><th>出勤</th><th>退勤</th><th>時間</th><th>備考</th></tr></thead>
+        <tbody>${rows || `<tr><td colspan="5" style="text-align:center;color:var(--muted2)">この月の打刻記録はまだありません</td></tr>`}</tbody>
+      </table>
+    </div>
+  `;
+}
+
 function renderReportTab() {
   const dates = daysInMonth(state.cursor.getFullYear(), state.cursor.getMonth());
   let rows = "";
@@ -812,7 +941,7 @@ function render() {
 
   const tabs = state.route === "admin"
     ? [{ id: "admin", label: "🔒 シフト確定" }, { id: "report", label: "📋 確定シフト表" }]
-    : [{ id: "input", label: "📨 希望シフト入力" }, { id: "report", label: "📋 確定シフト表" }];
+    : [{ id: "input", label: "📨 希望シフト入力" }, { id: "report", label: "📋 確定シフト表" }, { id: "myrecord", label: "🕐 自分の記録" }];
 
   let body;
   if (state.loading) {
@@ -821,6 +950,8 @@ function render() {
     body = renderInputTab();
   } else if (state.tab === "admin") {
     body = renderAdminTab();
+  } else if (state.tab === "myrecord") {
+    body = renderMyRecordTab();
   } else {
     body = renderReportTab();
   }
@@ -854,6 +985,7 @@ function render() {
   `;
 }
 
+// ---- event delegation ----
 document.addEventListener("click", (e) => {
   const el = e.target.closest("[data-action]");
   if (!el) return;
@@ -902,6 +1034,7 @@ window.addEventListener("hashchange", () => {
   render();
 });
 
+// ---- boot ----
 (async function init() {
   if (!CONFIG.API_URL || CONFIG.API_URL.indexOf("YOUR_APPS_SCRIPT") === 0) { render(); return; }
   state.loading = true;
@@ -914,6 +1047,7 @@ window.addEventListener("hashchange", () => {
   } else {
     if (state.staffAuthed && state.staffDirectory.find((s) => s.name === state.staffName)) {
       loadMonthData();
+      loadMyRecord();
     } else {
       state.staffAuthed = false;
       state.loading = false;
