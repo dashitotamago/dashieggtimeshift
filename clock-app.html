@@ -97,8 +97,18 @@ async function apiSavePhoto(base64, filename) {
       body: JSON.stringify({ action: "savePhoto", base64, filename }),
     });
     const data = await res.json();
-    return data && data.url ? data.url : null;
+    return data && data.url ? data : null; // { url, fileId }
   } catch (e) { console.error("apiSavePhoto failed", e); return null; }
+}
+async function apiAction(payload) {
+  try {
+    const res = await fetch(CONFIG.API_URL, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify(payload),
+    });
+    return await res.json();
+  } catch (e) { console.error("apiAction failed", payload, e); return { error: String(e) }; }
 }
 
 const state = {
@@ -214,12 +224,16 @@ async function capturePhoto() {
   const now = new Date();
   const dKey = dateKey(now);
   const filename = `${state.selectedName}_${dKey}_${state.selectedType}_${now.getTime()}`;
-  const photoUrl = await apiSavePhoto(base64, filename);
+  const photoResult = await apiSavePhoto(base64, filename);
 
   const punchKey = `punch:${dKey}:${state.selectedName}`;
   const existing = (await apiGet(punchKey)) || [];
-  existing.push({ type: state.selectedType, time: now.toISOString(), photoUrl: photoUrl || "" });
+  existing.push({ type: state.selectedType, time: now.toISOString(), photoUrl: (photoResult && photoResult.url) || "" });
   await apiSet(punchKey, existing);
+
+  if (state.selectedType === "in" && photoResult && photoResult.fileId) {
+    apiAction({ action: "notifyLineClockIn", fileId: photoResult.fileId, name: state.selectedName, time: now.toISOString() });
+  }
 
   state.saving = false;
   const typeInfo = PUNCH_TYPES.find((t) => t.id === state.selectedType);
