@@ -97,8 +97,8 @@ async function apiSavePhoto(base64, filename) {
       body: JSON.stringify({ action: "savePhoto", base64, filename }),
     });
     const data = await res.json();
-    return data && data.url ? data : null; // { url, fileId }
-  } catch (e) { console.error("apiSavePhoto failed", e); return null; }
+    return data; // { url, fileId } on success, or { error: "..." } on failure
+  } catch (e) { console.error("apiSavePhoto failed", e); return { error: String(e) }; }
 }
 async function apiAction(payload) {
   try {
@@ -226,13 +226,22 @@ async function capturePhoto() {
   const filename = `${state.selectedName}_${dKey}_${state.selectedType}_${now.getTime()}`;
   const photoResult = await apiSavePhoto(base64, filename);
 
+  if (!photoResult || !photoResult.url) {
+    state.saving = false;
+    state.resultMsg = `⚠ 写真の保存に失敗しました\n${(photoResult && photoResult.error) || "不明なエラー"}\nもう一度お試しください。`;
+    state.selectedType = null;
+    render();
+    setTimeout(() => { state.resultMsg = null; render(); }, 8000);
+    return;
+  }
+
   const punchKey = `punch:${dKey}:${state.selectedName}`;
   const existing = (await apiGet(punchKey)) || [];
-  existing.push({ type: state.selectedType, time: now.toISOString(), photoUrl: (photoResult && photoResult.url) || "" });
+  existing.push({ type: state.selectedType, time: now.toISOString(), photoUrl: photoResult.url || "" });
   await apiSet(punchKey, existing);
 
   let lineResult = null;
-  if (state.selectedType === "in" && photoResult && photoResult.fileId) {
+  if (state.selectedType === "in" && photoResult.fileId) {
     lineResult = await apiAction({ action: "notifyLineClockIn", fileId: photoResult.fileId, name: state.selectedName, time: now.toISOString() });
   }
 
