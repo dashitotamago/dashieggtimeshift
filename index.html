@@ -483,6 +483,23 @@ function updateSlotField(type, id, field, value) {
 }
 
 // ---- staff account management (admin) ----
+async function quickAddStaff() {
+  const nameInput = document.getElementById("quickStaffName");
+  const pwInput = document.getElementById("quickStaffPassword");
+  const name = nameInput ? nameInput.value.trim() : "";
+  const pw = pwInput ? pwInput.value : "";
+  if (!name) { flash("名前を入力してください"); return; }
+  if (state.staffDirectory.find((s) => s.name === name)) { flash("同じ名前のスタッフが既に登録されています"); return; }
+  const newDirectory = [...state.staffDirectory, { name, password: pw, wage: 0 }];
+  state.saving = true; render();
+  await apiSet("staffList", newDirectory);
+  state.staffDirectory = newDirectory;
+  state.saving = false;
+  nameInput.value = "";
+  pwInput.value = "";
+  flash(`${name}さんを登録しました`);
+}
+
 async function saveStaffDirectory() {
   state.saving = true; render();
   await apiSet(`staffList`, state.staffDirectory);
@@ -737,6 +754,16 @@ function renderAdminTab() {
         <button class="save-btn" style="margin-top:12px" data-action="changeAdminPassword">変更する</button>
       </div>
     ` : ""}
+  </div>`;
+
+  html += `<div class="card" style="margin-top:12px">
+    <div style="font-size:14px;font-weight:500;margin-bottom:4px">👥 従業員を登録</div>
+    <p style="font-size:12px;color:var(--muted2);margin:0 0 8px">希望シフトの提出がまだの従業員でも、ここで先に登録できます。時給や詳細設定は「従業員管理」ページで行えます。</p>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <input type="text" id="quickStaffName" placeholder="名前(ログインID)" style="flex:1;min-width:140px" />
+      <input type="text" id="quickStaffPassword" placeholder="初期パスワード" style="flex:1;min-width:140px" />
+    </div>
+    <button class="save-btn" style="margin-top:10px" data-action="quickAddStaff">＋ 登録する</button>
   </div>`;
 
   html += `<div class="card" style="margin-top:12px">
@@ -1039,6 +1066,7 @@ document.addEventListener("click", (e) => {
   else if (action === "submitResetCode") submitResetCode();
   else if (action === "toggleAdminPasswordChange") { state.showAdminPasswordChange = !state.showAdminPasswordChange; render(); }
   else if (action === "changeAdminPassword") changeAdminPassword();
+  else if (action === "quickAddStaff") quickAddStaff();
   else if (action === "addSlot") addSlot(el.dataset.type);
   else if (action === "removeSlot") removeSlot(el.dataset.type, el.dataset.id);
   else if (action === "saveSlotsConfig") saveSlotsConfig();
