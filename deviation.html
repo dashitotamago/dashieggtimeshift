@@ -156,44 +156,63 @@ async function loadLateSummary() {
   const weekendSlots = (slotsCfg && slotsCfg.weekend && slotsCfg.weekend.length) ? slotsCfg.weekend : DEFAULT_WEEKEND_SLOTS;
 
   const keys = await apiList("punch:");
-  const monthCache = {}; // mKey -> { holidays, confirmed }
-  const lateEvents = []; // { name, dateStr }
+  const parsed = keys
+    .map((k) => {
+      const parts = k.split(":");
+      if (parts.length < 3) return null;
+      return { key: k, dStr: parts[1], name: parts.slice(2).join(":"), mKey: parts[1].slice(0, 7) };
+    })
+    .filter(Boolean);
 
-  for (const k of keys) {
-    const parts = k.split(":");
-    if (parts.length < 3) continue;
-    const dStr = parts[1];
-    const name = parts.slice(2).join(":");
-    const mKey = dStr.slice(0, 7);
-
-    if (!monthCache[mKey]) {
-      const cfg = await apiGet(`config:${mKey}`);
-      const conf = await apiGet(`confirmed:${mKey}`);
+  // fetch config+confirmed for every distinct month in parallel
+  const months = [...new Set(parsed.map((p) => p.mKey))];
+  const monthCache = {};
+  await Promise.all(
+    months.map(async (mKey) => {
+      const [cfg, conf] = await Promise.all([apiGet(`config:${mKey}`), apiGet(`confirmed:${mKey}`)]);
       monthCache[mKey] = { holidays: (cfg && cfg.holidays) || [], confirmed: conf || {} };
-    }
-    const { holidays, confirmed } = monthCache[mKey];
-    const d = new Date(dStr + "T00:00:00");
-    const dow = d.getDay();
-    const weekend = dow === 0 || dow === 6 || holidays.includes(dStr);
-    const slots = weekend ? weekendSlots : weekdaySlots;
-    const dayConf = confirmed[dStr] || {};
+    })
+  );
 
+  // figure out which punch keys could possibly be "late" (has a scheduled start) before fetching records
+  const candidates = parsed.filter((p) => {
+    const { holidays, confirmed } = monthCache[p.mKey];
+    const d = new Date(p.dStr + "T00:00:00");
+    const dow = d.getDay();
+    const weekend = dow === 0 || dow === 6 || holidays.includes(p.dStr);
+    const slots = weekend ? weekendSlots : weekdaySlots;
+    const dayConf = confirmed[p.dStr] || {};
+    return slots.some((s) => dayConf[s.id] === p.name);
+  });
+
+  // fetch all candidate punch records in parallel
+  const recordsByKey = {};
+  await Promise.all(
+    candidates.map(async (p) => { recordsByKey[p.key] = await apiGet(p.key); })
+  );
+
+  const lateEvents = [];
+  for (const p of candidates) {
+    const { holidays, confirmed } = monthCache[p.mKey];
+    const d = new Date(p.dStr + "T00:00:00");
+    const dow = d.getDay();
+    const weekend = dow === 0 || dow === 6 || holidays.includes(p.dStr);
+    const slots = weekend ? weekendSlots : weekdaySlots;
+    const dayConf = confirmed[p.dStr] || {};
     let scheduledStartMin = null;
     for (const s of slots) {
-      if (dayConf[s.id] === name) {
+      if (dayConf[s.id] === p.name) {
         const sm = hmToMinutes(s.start);
         if (scheduledStartMin === null || sm < scheduledStartMin) scheduledStartMin = sm;
       }
     }
-    if (scheduledStartMin === null) continue; // no scheduled shift, can't be "late"
-
-    const records = await apiGet(k);
+    const records = recordsByKey[p.key];
     if (!records) continue;
     const inTime = firstInTime(records);
     if (!inTime) continue;
     const actualMin = inTime.getHours() * 60 + inTime.getMinutes();
     if (actualMin - scheduledStartMin > CONFIG.LATE_GRACE_MINUTES) {
-      lateEvents.push({ name, dateStr: dStr });
+      lateEvents.push({ name: p.name, dateStr: p.dStr });
     }
   }
 
@@ -225,9 +244,11 @@ async function loadMonth() {
   state.staffDirectory = normalizeStaffDirectory(list);
   if (!state.selectedName && state.staffDirectory.length) state.selectedName = state.staffDirectory[0].name;
 
-  const cfg = await apiGet(`config:${mKey}`);
-  const slotsCfg = await apiGet(`slotsConfig`);
-  const conf = await apiGet(`confirmed:${mKey}`);
+  const [cfg, slotsCfg, conf] = await Promise.all([
+    apiGet(`config:${mKey}`),
+    apiGet(`slotsConfig`),
+    apiGet(`confirmed:${mKey}`),
+  ]);
   state.holidays = (cfg && cfg.holidays) || [];
   state.weekdaySlots = (slotsCfg && slotsCfg.weekday && slotsCfg.weekday.length) ? slotsCfg.weekday : DEFAULT_WEEKDAY_SLOTS;
   state.weekendSlots = (slotsCfg && slotsCfg.weekend && slotsCfg.weekend.length) ? slotsCfg.weekend : DEFAULT_WEEKEND_SLOTS;
@@ -235,15 +256,16 @@ async function loadMonth() {
 
   const keys = await apiList(`punch:${mKey}`);
   const punchByDate = {};
-  for (const k of keys) {
-    const parts = k.split(":");
-    if (parts.length < 3) continue;
-    const dStr = parts[1];
-    const name = parts.slice(2).join(":");
-    const records = await apiGet(k);
-    if (!records) continue;
-    punchByDate[`${dStr}|${name}`] = records;
-  }
+  await Promise.all(
+    keys.map(async (k) => {
+      const parts = k.split(":");
+      if (parts.length < 3) return;
+      const dStr = parts[1];
+      const name = parts.slice(2).join(":");
+      const records = await apiGet(k);
+      if (records) punchByDate[`${dStr}|${name}`] = records;
+    })
+  );
   state.punchByDate = punchByDate;
 
   computeRows();
