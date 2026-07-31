@@ -229,6 +229,9 @@ const state = {
   showPasswordChange: false,
   holidays: [],
   unlockedDates: [],
+  dateOverrides: {}, // dateKey -> custom slots array for that single day
+  editingDateSlots: null, // dateKey currently being edited, or null
+  editingSlotsList: [],
   weekdaySlots: DEFAULT_WEEKDAY_SLOTS,
   weekendSlots: DEFAULT_WEEKEND_SLOTS,
   mySubmission: {},
@@ -244,7 +247,11 @@ function isWeekendType(d) {
   const dow = d.getDay();
   return dow === 0 || dow === 6 || state.holidays.includes(dateKey(d));
 }
-function slotsForDate(d) { return isWeekendType(d) ? state.weekendSlots : state.weekdaySlots; }
+function slotsForDate(d) {
+  const override = state.dateOverrides[dateKey(d)];
+  if (override && override.length) return override;
+  return isWeekendType(d) ? state.weekendSlots : state.weekdaySlots;
+}
 function availableStaffFor(dKey, slotId) {
   const requested = new Set(
     Object.entries(state.allSubmissions)
@@ -310,6 +317,7 @@ async function loadMonthData() {
   );
   state.holidays = (cfg && cfg.holidays) || [];
   state.unlockedDates = (cfg && cfg.unlockedDates) || [];
+  state.dateOverrides = (cfg && cfg.dateOverrides) || {};
   state.weekdaySlots = (slotsCfg && slotsCfg.weekday && slotsCfg.weekday.length) ? slotsCfg.weekday : DEFAULT_WEEKDAY_SLOTS;
   state.weekendSlots = (slotsCfg && slotsCfg.weekend && slotsCfg.weekend.length) ? slotsCfg.weekend : DEFAULT_WEEKEND_SLOTS;
   state.confirmed = conf || {};
@@ -417,7 +425,7 @@ function flash(msg) {
 }
 
 async function saveDateConfig() {
-  await apiSet(`config:${monthKey(state.cursor)}`, { holidays: state.holidays, unlockedDates: state.unlockedDates });
+  await apiSet(`config:${monthKey(state.cursor)}`, { holidays: state.holidays, unlockedDates: state.unlockedDates, dateOverrides: state.dateOverrides });
 }
 async function toggleHoliday(dKey) {
   state.holidays = state.holidays.includes(dKey) ? state.holidays.filter((h) => h !== dKey) : [...state.holidays, dKey];
@@ -426,6 +434,54 @@ async function toggleHoliday(dKey) {
   await saveDateConfig();
   state.saving = false;
   flash("設定を保存しました");
+}
+
+// ---- per-date shift time override ----
+function openDateSlotEditor(dKey) {
+  const d = new Date(dKey + "T00:00:00");
+  const existing = state.dateOverrides[dKey];
+  state.editingDateSlots = dKey;
+  state.editingSlotsList = existing && existing.length
+    ? existing.map((s) => ({ ...s }))
+    : slotsForDate(d).map((s) => ({ ...s }));
+  render();
+}
+function closeDateSlotEditor() {
+  state.editingDateSlots = null;
+  state.editingSlotsList = [];
+  render();
+}
+function addOverrideSlot() {
+  state.editingSlotsList = [...state.editingSlotsList, { id: uid(), label: "新しい枠", start: "09:00", end: "13:00" }];
+  render();
+}
+function removeOverrideSlot(id) {
+  state.editingSlotsList = state.editingSlotsList.filter((s) => s.id !== id);
+  render();
+}
+function updateOverrideSlotField(id, field, value) {
+  state.editingSlotsList = state.editingSlotsList.map((s) => (s.id === id ? { ...s, [field]: value } : s));
+}
+async function saveDateSlotOverride() {
+  const dKey = state.editingDateSlots;
+  state.dateOverrides = { ...state.dateOverrides, [dKey]: state.editingSlotsList };
+  state.saving = true; render();
+  await saveDateConfig();
+  state.saving = false;
+  state.editingDateSlots = null;
+  state.editingSlotsList = [];
+  flash("この日の時間を変更しました");
+}
+async function resetDateSlotOverride(dKey) {
+  const next = { ...state.dateOverrides };
+  delete next[dKey];
+  state.dateOverrides = next;
+  state.saving = true; render();
+  await saveDateConfig();
+  state.saving = false;
+  state.editingDateSlots = null;
+  state.editingSlotsList = [];
+  flash("通常の時間に戻しました");
 }
 async function toggleUnlock(dKey) {
   state.unlockedDates = state.unlockedDates.includes(dKey) ? state.unlockedDates.filter((h) => h !== dKey) : [...state.unlockedDates, dKey];
@@ -774,11 +830,38 @@ function renderAdminTab() {
     const conf = state.confirmed[dKey] || {};
     const deadlinePassed = isLocked(d);
     const unlocked = state.unlockedDates.includes(dKey);
-    html += `<div class="card">${dateLabelHtml(d, weekend)}`;
+    const hasOverride = !!(state.dateOverrides[dKey] && state.dateOverrides[dKey].length);
+    html += `<div class="card">
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:4px">
+        <div>${dateLabelHtml(d, weekend)}${hasOverride ? ` <span class="badge" style="background:var(--orange-bg);color:var(--orange)">時間変更中</span>` : ""}</div>
+        <button class="text-link" data-action="openDateSlotEditor" data-date="${dKey}">🕐 この日だけ時間を変更</button>
+      </div>`;
     if (deadlinePassed) {
       html += `<button class="holiday-chip ${unlocked ? "active" : ""}" data-action="toggleUnlock" data-date="${dKey}" style="margin:8px 0 0">
         ${unlocked ? "🔓 受付延長中（クリックで締切に戻す）" : "🔒 締切済み（クリックで受付を再開）"}
       </button>`;
+    }
+    if (state.editingDateSlots === dKey) {
+      let rows = "";
+      for (const s of state.editingSlotsList) {
+        rows += `<div class="slot-editor-row">
+          <input type="text" value="${esc(s.label)}" data-action="overrideSlotLabel" data-id="${s.id}" placeholder="枠の名前" />
+          <input type="time" value="${s.start}" data-action="overrideSlotStart" data-id="${s.id}" />
+          〜
+          <input type="time" value="${s.end}" data-action="overrideSlotEnd" data-id="${s.id}" />
+          <button class="remove-btn" data-action="removeOverrideSlot" data-id="${s.id}">削除</button>
+        </div>`;
+      }
+      html += `<div class="card" style="background:#FBF8F2;margin-top:12px">
+        <div style="font-size:13px;font-weight:700;margin-bottom:4px">🕐 ${d.getMonth() + 1}/${d.getDate()}だけの時間設定</div>
+        ${rows}
+        <button class="add-btn" data-action="addOverrideSlot">＋ 枠を追加</button>
+        <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
+          <button class="submit-btn" style="margin-top:0;flex:1" data-action="saveDateSlotOverride">保存する</button>
+          ${hasOverride ? `<button class="remove-btn" data-action="resetDateSlotOverride" data-date="${dKey}">通常の時間に戻す</button>` : ""}
+          <button class="remove-btn" data-action="closeDateSlotEditor">キャンセル</button>
+        </div>
+      </div>`;
     }
     html += `<div style="margin-top:12px">`;
     for (const s of slotsForDate(d)) {
@@ -1038,6 +1121,12 @@ document.addEventListener("click", (e) => {
   else if (action === "submit") submitMyShift();
   else if (action === "toggleHoliday") toggleHoliday(el.dataset.date);
   else if (action === "toggleUnlock") toggleUnlock(el.dataset.date);
+  else if (action === "openDateSlotEditor") openDateSlotEditor(el.dataset.date);
+  else if (action === "closeDateSlotEditor") closeDateSlotEditor();
+  else if (action === "addOverrideSlot") addOverrideSlot();
+  else if (action === "removeOverrideSlot") removeOverrideSlot(el.dataset.id);
+  else if (action === "saveDateSlotOverride") saveDateSlotOverride();
+  else if (action === "resetDateSlotOverride") resetDateSlotOverride(el.dataset.date);
   else if (action === "saveConfirmed") saveConfirmed();
   else if (action === "adminLogin") adminLogin();
   else if (action === "showForgotPassword") { state.showForgotPassword = true; state.forgotStep = "request"; state.forgotFlash = ""; render(); }
@@ -1065,6 +1154,9 @@ document.addEventListener("change", (e) => {
   else if (action === "slotLabel") updateSlotField(el.dataset.type, el.dataset.id, "label", el.value);
   else if (action === "slotStart") updateSlotField(el.dataset.type, el.dataset.id, "start", el.value);
   else if (action === "slotEnd") updateSlotField(el.dataset.type, el.dataset.id, "end", el.value);
+  else if (action === "overrideSlotLabel") updateOverrideSlotField(el.dataset.id, "label", el.value);
+  else if (action === "overrideSlotStart") updateOverrideSlotField(el.dataset.id, "start", el.value);
+  else if (action === "overrideSlotEnd") updateOverrideSlotField(el.dataset.id, "end", el.value);
   else if (action === "staffName") updateStaffField(Number(el.dataset.index), "name", el.value);
   else if (action === "staffWage") updateStaffField(Number(el.dataset.index), "wage", el.value);
   else if (action === "staffPassword") updateStaffField(Number(el.dataset.index), "password", el.value);
