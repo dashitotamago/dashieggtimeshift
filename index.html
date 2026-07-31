@@ -287,17 +287,21 @@ async function loadMonthData() {
   state.loading = true;
   render();
   const mKey = monthKey(state.cursor);
-  const cfg = await apiGet(`config:${mKey}`);
-  const slotsCfg = await apiGet(`slotsConfig`);
-  const conf = await apiGet(`confirmed:${mKey}`);
+  const [cfg, slotsCfg, conf] = await Promise.all([
+    apiGet(`config:${mKey}`),
+    apiGet(`slotsConfig`),
+    apiGet(`confirmed:${mKey}`),
+  ]);
   await loadStaffDirectory();
   let subs = {};
   const keys = await apiList(`submission:${mKey}:`);
-  for (const k of keys) {
-    const name = k.split(":").slice(2).join(":");
-    const val = await apiGet(k);
-    if (val) subs[name] = val;
-  }
+  await Promise.all(
+    keys.map(async (k) => {
+      const name = k.split(":").slice(2).join(":");
+      const val = await apiGet(k);
+      if (val) subs[name] = val;
+    })
+  );
   state.holidays = (cfg && cfg.holidays) || [];
   state.unlockedDates = (cfg && cfg.unlockedDates) || [];
   state.weekdaySlots = (slotsCfg && slotsCfg.weekday && slotsCfg.weekday.length) ? slotsCfg.weekday : DEFAULT_WEEKDAY_SLOTS;
@@ -320,9 +324,11 @@ async function loadMyRecord() {
   try {
     const now = new Date();
     const mKey = monthKey(now);
-    const cfg = await apiGet(`config:${mKey}`);
-    const slotsCfg = await apiGet(`slotsConfig`);
-    const conf = await apiGet(`confirmed:${mKey}`);
+    const [cfg, slotsCfg, conf] = await Promise.all([
+      apiGet(`config:${mKey}`),
+      apiGet(`slotsConfig`),
+      apiGet(`confirmed:${mKey}`),
+    ]);
     const holidays = (cfg && cfg.holidays) || [];
     const weekdaySlotsM = (slotsCfg && slotsCfg.weekday && slotsCfg.weekday.length) ? slotsCfg.weekday : DEFAULT_WEEKDAY_SLOTS;
     const weekendSlotsM = (slotsCfg && slotsCfg.weekend && slotsCfg.weekend.length) ? slotsCfg.weekend : DEFAULT_WEEKEND_SLOTS;
@@ -333,10 +339,20 @@ async function loadMyRecord() {
     const rows = [];
     let hoursTotal = 0, lateCount = 0;
 
+    const punchKeys = await apiList(`punch:${mKey}`);
+    const myKeys = punchKeys.filter((k) => k.split(":").slice(2).join(":") === state.staffName);
+    const recordsByDate = {};
+    await Promise.all(
+      myKeys.map(async (k) => {
+        const dStr = k.split(":")[1];
+        recordsByDate[dStr] = await apiGet(k);
+      })
+    );
+
     for (const d of dates) {
       if (d > now) continue;
       const dKey = dateKey(d);
-      const records = await apiGet(`punch:${dKey}:${state.staffName}`);
+      const records = recordsByDate[dKey];
       if (!records || !records.length) continue;
 
       const hours = calcHoursForPunches(records);
