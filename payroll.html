@@ -103,19 +103,26 @@ async function loadPayroll() {
   const keys = await apiList(`punch:${mKey}`);
 
   // key format: punch:YYYY-MM-DD:name
+  const parsed = keys
+    .map((k) => {
+      const parts = k.split(":");
+      if (parts.length < 3) return null;
+      return { key: k, dateStr: parts[1], name: parts.slice(2).join(":") };
+    })
+    .filter(Boolean);
+
+  const recordsByKey = {};
+  await Promise.all(parsed.map(async (p) => { recordsByKey[p.key] = await apiGet(p.key); }));
+
   const perStaff = {}; // name -> { days: Set, hours: number }
-  for (const k of keys) {
-    const parts = k.split(":");
-    if (parts.length < 3) continue;
-    const dateStr = parts[1];
-    const name = parts.slice(2).join(":");
-    const records = await apiGet(k);
+  for (const p of parsed) {
+    const records = recordsByKey[p.key];
     if (!records || !records.length) continue;
     const hours = calcHoursForPunches(records);
     if (hours <= 0) continue;
-    if (!perStaff[name]) perStaff[name] = { days: new Set(), hours: 0 };
-    perStaff[name].days.add(dateStr);
-    perStaff[name].hours += hours;
+    if (!perStaff[p.name]) perStaff[p.name] = { days: new Set(), hours: 0 };
+    perStaff[p.name].days.add(p.dateStr);
+    perStaff[p.name].hours += hours;
   }
 
   const rows = [];
