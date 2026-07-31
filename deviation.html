@@ -145,6 +145,7 @@ const state = {
   selectedName: "",
   isNewStaff: false,
   holidays: [],
+  dateOverrides: {},
   weekdaySlots: DEFAULT_WEEKDAY_SLOTS,
   weekendSlots: DEFAULT_WEEKEND_SLOTS,
   confirmed: {},
@@ -158,7 +159,11 @@ const state = {
 };
 
 function isWeekendType(d) { const dow = d.getDay(); return dow === 0 || dow === 6 || state.holidays.includes(dateKey(d)); }
-function slotsForDate(d) { return isWeekendType(d) ? state.weekendSlots : state.weekdaySlots; }
+function slotsForDate(d) {
+  const override = state.dateOverrides[dateKey(d)];
+  if (override && override.length) return override;
+  return isWeekendType(d) ? state.weekendSlots : state.weekdaySlots;
+}
 function wageOf(name) { const s = state.staffDirectory.find((x) => x.name === name); return s ? Number(s.wage) || 0 : 0; }
 
 function flash(msg) {
@@ -226,6 +231,7 @@ async function loadMonth() {
     apiGet(`confirmed:${mKey}`),
   ]);
   state.holidays = (cfg && cfg.holidays) || [];
+  state.dateOverrides = (cfg && cfg.dateOverrides) || {};
   state.weekdaySlots = (slotsCfg && slotsCfg.weekday && slotsCfg.weekday.length) ? slotsCfg.weekday : DEFAULT_WEEKDAY_SLOTS;
   state.weekendSlots = (slotsCfg && slotsCfg.weekend && slotsCfg.weekend.length) ? slotsCfg.weekend : DEFAULT_WEEKEND_SLOTS;
   state.confirmed = conf || {};
@@ -279,15 +285,22 @@ async function loadLateSummary() {
   const monthCache = {};
   await Promise.all(months.map(async (mKey) => {
     const [cfg, conf] = await Promise.all([apiGet(`config:${mKey}`), apiGet(`confirmed:${mKey}`)]);
-    monthCache[mKey] = { holidays: (cfg && cfg.holidays) || [], confirmed: conf || {} };
+    monthCache[mKey] = { holidays: (cfg && cfg.holidays) || [], dateOverrides: (cfg && cfg.dateOverrides) || {}, confirmed: conf || {} };
   }));
 
-  const candidates = parsed.filter((p) => {
-    const { holidays, confirmed } = monthCache[p.mKey];
+  function slotsFor(p) {
+    const { holidays, dateOverrides } = monthCache[p.mKey];
+    const override = dateOverrides[p.dStr];
+    if (override && override.length) return override;
     const d = new Date(p.dStr + "T00:00:00");
     const dow = d.getDay();
     const weekend = dow === 0 || dow === 6 || holidays.includes(p.dStr);
-    const slots = weekend ? weekendSlots : weekdaySlots;
+    return weekend ? weekendSlots : weekdaySlots;
+  }
+
+  const candidates = parsed.filter((p) => {
+    const { confirmed } = monthCache[p.mKey];
+    const slots = slotsFor(p);
     const dayConf = confirmed[p.dStr] || {};
     return slots.some((s) => dayConf[s.id] === p.name);
   });
@@ -297,11 +310,8 @@ async function loadLateSummary() {
 
   const lateEvents = [];
   for (const p of candidates) {
-    const { holidays, confirmed } = monthCache[p.mKey];
-    const d = new Date(p.dStr + "T00:00:00");
-    const dow = d.getDay();
-    const weekend = dow === 0 || dow === 6 || holidays.includes(p.dStr);
-    const slots = weekend ? weekendSlots : weekdaySlots;
+    const { confirmed } = monthCache[p.mKey];
+    const slots = slotsFor(p);
     const dayConf = confirmed[p.dStr] || {};
     let scheduledStartMin = null;
     for (const s of slots) {
