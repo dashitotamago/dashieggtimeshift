@@ -266,11 +266,14 @@ async function loadLateSummary() {
   const weekendSlots = (slotsCfg && slotsCfg.weekend && slotsCfg.weekend.length) ? slotsCfg.weekend : DEFAULT_WEEKEND_SLOTS;
 
   const keys = await apiList("punch:");
+  const now0 = new Date();
+  const cutoffMonth = new Date(now0.getFullYear(), now0.getMonth() - 5, 1);
+  const cutoffKey = monthKey(cutoffMonth);
   const parsed = keys.map((k) => {
     const parts = k.split(":");
     if (parts.length < 3) return null;
     return { key: k, dStr: parts[1], name: parts.slice(2).join(":"), mKey: parts[1].slice(0, 7) };
-  }).filter(Boolean);
+  }).filter((p) => p && p.mKey >= cutoffKey);
 
   const months = [...new Set(parsed.map((p) => p.mKey))];
   const monthCache = {};
