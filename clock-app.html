@@ -231,16 +231,20 @@ async function capturePhoto() {
   existing.push({ type: state.selectedType, time: now.toISOString(), photoUrl: (photoResult && photoResult.url) || "" });
   await apiSet(punchKey, existing);
 
+  let lineResult = null;
   if (state.selectedType === "in" && photoResult && photoResult.fileId) {
-    apiAction({ action: "notifyLineClockIn", fileId: photoResult.fileId, name: state.selectedName, time: now.toISOString() });
+    lineResult = await apiAction({ action: "notifyLineClockIn", fileId: photoResult.fileId, name: state.selectedName, time: now.toISOString() });
   }
 
   state.saving = false;
   const typeInfo = PUNCH_TYPES.find((t) => t.id === state.selectedType);
   state.resultMsg = `${state.selectedName}さん ${typeInfo.label} 完了（${timeLabel(now)}）`;
+  if (lineResult && !lineResult.sent) {
+    state.resultMsg += `\n⚠ LINE送信失敗: ${lineResult.reason || (lineResult.status + " " + lineResult.body)}`;
+  }
   state.selectedType = null;
   render();
-  setTimeout(() => { state.resultMsg = null; render(); }, 3000);
+  setTimeout(() => { state.resultMsg = null; render(); }, lineResult && !lineResult.sent ? 8000 : 3000);
 }
 
 function render() {
@@ -308,9 +312,10 @@ function render() {
       </div>
     `;
   } else if (state.resultMsg) {
+    const hasWarning = state.resultMsg.indexOf("⚠") !== -1;
     body = `<div class="result">
-      <div class="big">✅</div>
-      <p style="font-size:18px;font-weight:700;margin-top:12px">${esc(state.resultMsg)}</p>
+      <div class="big">${hasWarning ? "⚠️" : "✅"}</div>
+      <p style="font-size:16px;font-weight:700;margin-top:12px;white-space:pre-wrap">${esc(state.resultMsg)}</p>
     </div>`;
   } else if (state.loading) {
     body = `<div class="center-msg">読み込み中…</div>`;
