@@ -246,13 +246,19 @@ function isWeekendType(d) {
 }
 function slotsForDate(d) { return isWeekendType(d) ? state.weekendSlots : state.weekdaySlots; }
 function availableStaffFor(dKey, slotId) {
-  return Object.entries(state.allSubmissions)
-    .filter(([, sub]) => {
-      const e = sub[dKey];
-      if (!e) return false;
-      return (e.slots || []).includes(slotId);
-    })
-    .map(([name]) => name);
+  const requested = new Set(
+    Object.entries(state.allSubmissions)
+      .filter(([, sub]) => {
+        const e = sub[dKey];
+        if (!e) return false;
+        return (e.slots || []).includes(slotId);
+      })
+      .map(([name]) => name)
+  );
+  const all = state.staffDirectory.map((s) => ({ name: s.name, requested: requested.has(s.name) }));
+  // 希望を出している人を先に、それ以外を後に
+  all.sort((a, b) => (b.requested - a.requested) || a.name.localeCompare(b.name, "ja"));
+  return all;
 }
 function wageOf(name) {
   const entry = state.staffDirectory.find((s) => s.name === name);
@@ -816,8 +822,9 @@ function renderAdminTab() {
 
 function assignRowHtml(label, value, options, dKey, field) {
   let opts = `<option value="">未定</option>`;
-  for (const name of options) {
-    opts += `<option value="${esc(name)}" ${value === name ? "selected" : ""}>${esc(name)}</option>`;
+  for (const o of options) {
+    const optLabel = o.requested ? `${o.name}（○希望あり）` : `${o.name}（希望なし）`;
+    opts += `<option value="${esc(o.name)}" ${value === o.name ? "selected" : ""}>${esc(optLabel)}</option>`;
   }
   return `<div class="assign-row">
     <span class="assign-label">${esc(label)}</span>
