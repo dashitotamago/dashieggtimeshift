@@ -747,12 +747,6 @@ function renderAdminTab() {
     <button class="save-btn" style="display:block;margin-top:16px" data-action="saveSlotsConfig">💾 シフト時間・人数を保存</button>
   </div>`;
 
-  html += `<div class="card" style="margin-top:12px;background:#FBF8F2">
-    <div style="font-size:14px;font-weight:500">👥 スタッフアカウント・時給・提出回数</div>
-    <p style="font-size:12px;color:var(--muted2);margin:4px 0 0">スタッフの登録・パスワード・時給・提出状況の確認は「従業員管理」ページに移動しました。</p>
-    <a href="deviation.html" target="_blank" style="font-size:13px;color:var(--green);text-decoration:underline;display:inline-block;margin-top:6px">→ 従業員管理を開く</a>
-  </div>`;
-
   html += `<div class="card" style="margin-top:12px">
     <div style="font-size:14px;font-weight:500;margin-bottom:8px">⚠ 祝日の設定（クリックで土日祝扱いを切替）</div>
     <div>`;
@@ -877,7 +871,7 @@ function renderStaffLoginGate() {
     <header><div class="wrap header-row">
       <div style="display:flex;align-items:center;gap:12px">
         <div class="logo-badge">📅</div>
-        <div><h1 class="disp">シフト管理板<span class="tag">スタッフ用</span></h1></div>
+        <div><h1 class="disp">シフト管理板<span class="tag">シフト提出</span></h1></div>
       </div>
     </div></header>
     <div class="wrap" style="padding-top:60px;max-width:360px">
@@ -913,7 +907,7 @@ function render() {
         <header><div class="wrap header-row">
           <div style="display:flex;align-items:center;gap:12px">
             <div class="logo-badge">📅</div>
-            <div><h1 class="disp">シフト管理板<span class="tag">管理者用</span></h1></div>
+            <div><h1 class="disp">シフト管理板<span class="tag">シフト管理</span></h1></div>
           </div>
         </div></header>
         <div class="wrap" style="padding-top:60px;max-width:360px">
@@ -942,7 +936,7 @@ function render() {
       <header><div class="wrap header-row">
         <div style="display:flex;align-items:center;gap:12px">
           <div class="logo-badge">📅</div>
-          <div><h1 class="disp">シフト管理板<span class="tag">管理者用</span></h1></div>
+          <div><h1 class="disp">シフト管理板<span class="tag">シフト管理</span></h1></div>
         </div>
       </div></header>
       <div class="wrap" style="padding-top:60px;max-width:360px">
@@ -996,13 +990,13 @@ function render() {
       <div style="display:flex;align-items:center;gap:12px">
         <div class="logo-badge">📅</div>
         <div>
-          <h1 class="disp">シフト管理板<span class="tag">${state.route === "admin" ? "管理者用" : "スタッフ用"}</span></h1>
+          <h1 class="disp">シフト管理板<span class="tag">${state.route === "admin" ? "シフト管理" : "シフト提出"}</span></h1>
           <p class="sub">平日ワンオペ・土日祝二部制</p>
         </div>
       </div>
       <div style="display:flex;align-items:center;gap:16px">
         ${(state.saving || state.flash) ? `<div class="flash">${state.saving ? "保存中…" : esc(state.flash)}</div>` : ""}
-        <a class="switch-link" href="${state.route === "admin" ? "#staff" : "#admin"}">${state.route === "admin" ? "スタッフ画面へ" : "管理者画面へ"}</a>
+        ${state.route === "admin" ? `<a class="switch-link" href="#staff">スタッフ画面へ</a>` : ""}
       </div>
     </div></header>
     <div class="wrap">
