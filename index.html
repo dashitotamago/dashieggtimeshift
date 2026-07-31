@@ -233,7 +233,6 @@ const state = {
   weekendSlots: DEFAULT_WEEKEND_SLOTS,
   mySubmission: {},
   allSubmissions: {},
-  submissionCounts: {}, // { name: count } for the currently viewed month
   staffDirectory: [], // [{name, wage, password}]
   confirmed: {},
   myRecord: null, // { rows, hoursTotal, wageTotal, lateCount }
@@ -303,16 +302,6 @@ async function loadMonthData() {
       if (val) subs[name] = val;
     })
   );
-  let counts = {};
-  const countKeys = await apiList(`submissionCount:${mKey}:`);
-  await Promise.all(
-    countKeys.map(async (k) => {
-      const name = k.split(":").slice(2).join(":");
-      const val = await apiGet(k);
-      counts[name] = val || 0;
-    })
-  );
-  state.submissionCounts = counts;
   state.holidays = (cfg && cfg.holidays) || [];
   state.unlockedDates = (cfg && cfg.unlockedDates) || [];
   state.weekdaySlots = (slotsCfg && slotsCfg.weekday && slotsCfg.weekday.length) ? slotsCfg.weekday : DEFAULT_WEEKDAY_SLOTS;
@@ -452,11 +441,7 @@ async function submitMyShift() {
   state.saving = true; render();
   const mKey = monthKey(state.cursor);
   await apiSet(`submission:${mKey}:${state.staffName}`, state.mySubmission);
-  const countKey = `submissionCount:${mKey}:${state.staffName}`;
-  const currentCount = (await apiGet(countKey)) || 0;
-  await apiSet(countKey, currentCount + 1);
   state.allSubmissions = { ...state.allSubmissions, [state.staffName]: state.mySubmission };
-  state.submissionCounts = { ...state.submissionCounts, [state.staffName]: currentCount + 1 };
   state.saving = false;
   flash("希望シフトを送信しました");
 }
@@ -762,21 +747,11 @@ function renderAdminTab() {
     <button class="save-btn" style="display:block;margin-top:16px" data-action="saveSlotsConfig">💾 シフト時間・人数を保存</button>
   </div>`;
 
-  html += staffEditorHtml();
-
-  html += `<div class="card" style="margin-top:12px">
-    <div style="font-size:14px;font-weight:500;margin-bottom:8px">📨 今月の希望シフト提出回数</div>`;
-  if (state.staffDirectory.length === 0) {
-    html += `<p style="font-size:12px;color:var(--muted2);margin:0">スタッフが登録されていません。</p>`;
-  } else {
-    html += `<table><tbody>`;
-    for (const s of state.staffDirectory) {
-      const count = state.submissionCounts[s.name] || 0;
-      html += `<tr><td style="padding:4px 8px 4px 0">${esc(s.name)}</td><td style="text-align:right;font-weight:700">${count}回</td></tr>`;
-    }
-    html += `</tbody></table>`;
-  }
-  html += `</div>`;
+  html += `<div class="card" style="margin-top:12px;background:#FBF8F2">
+    <div style="font-size:14px;font-weight:500">👥 スタッフアカウント・時給・提出回数</div>
+    <p style="font-size:12px;color:var(--muted2);margin:4px 0 0">スタッフの登録・パスワード・時給・提出状況の確認は「従業員管理」ページに移動しました。</p>
+    <a href="deviation.html" target="_blank" style="font-size:13px;color:var(--green);text-decoration:underline;display:inline-block;margin-top:6px">→ 従業員管理を開く</a>
+  </div>`;
 
   html += `<div class="card" style="margin-top:12px">
     <div style="font-size:14px;font-weight:500;margin-bottom:8px">⚠ 祝日の設定（クリックで土日祝扱いを切替）</div>
