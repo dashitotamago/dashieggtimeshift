@@ -521,7 +521,6 @@ function renderDailyTable(name) {
     for (const s of slots) { if (conf[s.id] === name) scheduledHours += slotHours(s); }
     const records = state.punchByDate[`${dKey}|${name}`] || [];
     const actualHours = records.length ? calcHoursForPunches(records) : 0;
-    if (scheduledHours <= 0 && actualHours <= 0) continue;
     const diff = actualHours - scheduledHours;
     const rate = scheduledHours > 0 ? (diff / scheduledHours) * 100 : (actualHours > 0 ? 100 : 0);
 
