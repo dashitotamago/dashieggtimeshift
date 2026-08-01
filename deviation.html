@@ -117,6 +117,19 @@ async function apiList(prefix) {
     return (data && data.keys) || [];
   } catch (e) { console.error("apiList failed", prefix, e); return []; }
 }
+async function apiListValues(prefix) {
+  // { key: parsedValue } for every key under prefix, fetched in a single request
+  try {
+    const res = await fetch(`${CONFIG.API_URL}?action=listValues&prefix=${encodeURIComponent(prefix)}`);
+    const data = await res.json();
+    const out = {};
+    for (const item of (data && data.items) || []) {
+      if (item.value == null || item.value === "") continue;
+      try { out[item.key] = JSON.parse(item.value); } catch (e) { /* skip malformed */ }
+    }
+    return out;
+  } catch (e) { console.error("apiListValues failed", prefix, e); return {}; }
+}
 async function apiAction(payload) {
   try {
     const res = await fetch(CONFIG.API_URL, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify(payload) });
@@ -236,29 +249,23 @@ async function loadMonth() {
   state.weekendSlots = (slotsCfg && slotsCfg.weekend && slotsCfg.weekend.length) ? slotsCfg.weekend : DEFAULT_WEEKEND_SLOTS;
   state.confirmed = conf || {};
 
-  const punchKeys = await apiList(`punch:${mKey}`);
+  const punchValues = await apiListValues(`punch:${mKey}`);
   const punchByDate = {};
-  await Promise.all(
-    punchKeys.map(async (k) => {
-      const parts = k.split(":");
-      if (parts.length < 3) return;
-      const dStr = parts[1];
-      const name = parts.slice(2).join(":");
-      const records = await apiGet(k);
-      if (records) punchByDate[`${dStr}|${name}`] = records;
-    })
-  );
+  for (const key in punchValues) {
+    const parts = key.split(":");
+    if (parts.length < 3) continue;
+    const dStr = parts[1];
+    const name = parts.slice(2).join(":");
+    punchByDate[`${dStr}|${name}`] = punchValues[key];
+  }
   state.punchByDate = punchByDate;
 
-  const subKeys = await apiList(`submission:${mKey}:`);
+  const subValues = await apiListValues(`submission:${mKey}:`);
   const subs = {};
-  await Promise.all(
-    subKeys.map(async (k) => {
-      const name = k.split(":").slice(2).join(":");
-      const val = await apiGet(k);
-      if (val) subs[name] = val;
-    })
-  );
+  for (const key in subValues) {
+    const name = key.split(":").slice(2).join(":");
+    subs[name] = subValues[key];
+  }
   state.allSubmissions = subs;
 
   state.loading = false;
@@ -271,14 +278,14 @@ async function loadLateSummary() {
   const weekdaySlots = (slotsCfg && slotsCfg.weekday && slotsCfg.weekday.length) ? slotsCfg.weekday : DEFAULT_WEEKDAY_SLOTS;
   const weekendSlots = (slotsCfg && slotsCfg.weekend && slotsCfg.weekend.length) ? slotsCfg.weekend : DEFAULT_WEEKEND_SLOTS;
 
-  const keys = await apiList("punch:");
+  const punchValues = await apiListValues("punch:");
   const now0 = new Date();
   const cutoffMonth = new Date(now0.getFullYear(), now0.getMonth() - 5, 1);
   const cutoffKey = monthKey(cutoffMonth);
-  const parsed = keys.map((k) => {
+  const parsed = Object.keys(punchValues).map((k) => {
     const parts = k.split(":");
     if (parts.length < 3) return null;
-    return { key: k, dStr: parts[1], name: parts.slice(2).join(":"), mKey: parts[1].slice(0, 7) };
+    return { key: k, dStr: parts[1], name: parts.slice(2).join(":"), mKey: parts[1].slice(0, 7), records: punchValues[k] };
   }).filter((p) => p && p.mKey >= cutoffKey);
 
   const months = [...new Set(parsed.map((p) => p.mKey))];
@@ -305,9 +312,6 @@ async function loadLateSummary() {
     return slots.some((s) => dayConf[s.id] === p.name);
   });
 
-  const recordsByKey = {};
-  await Promise.all(candidates.map(async (p) => { recordsByKey[p.key] = await apiGet(p.key); }));
-
   const lateEvents = [];
   for (const p of candidates) {
     const { confirmed } = monthCache[p.mKey];
@@ -320,7 +324,7 @@ async function loadLateSummary() {
         if (scheduledStartMin === null || sm < scheduledStartMin) scheduledStartMin = sm;
       }
     }
-    const records = recordsByKey[p.key];
+    const records = p.records;
     if (!records) continue;
     const inTime = firstInTime(records);
     if (!inTime) continue;
