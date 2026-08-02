@@ -199,6 +199,18 @@ async function apiList(prefix) {
     return (data && data.keys) || [];
   } catch (e) { console.error("apiList failed", prefix, e); return []; }
 }
+async function apiListValues(prefix) {
+  try {
+    const res = await fetch(`${CONFIG.API_URL}?action=listValues&prefix=${encodeURIComponent(prefix)}`);
+    const data = await res.json();
+    const out = {};
+    for (const item of (data && data.items) || []) {
+      if (item.value == null || item.value === "") continue;
+      try { out[item.key] = JSON.parse(item.value); } catch (e) { /* skip malformed */ }
+    }
+    return out;
+  } catch (e) { console.error("apiListValues failed", prefix, e); return {}; }
+}
 async function apiAction(payload) {
   try {
     const res = await fetch(CONFIG.API_URL, {
@@ -227,6 +239,7 @@ const state = {
   staffAuthed: sessionStorage.getItem("staffAuthed") === "1",
   staffName: sessionStorage.getItem("staffAuthedName") || "",
   showPasswordChange: false,
+  submitSuccess: false,
   holidays: [],
   unlockedDates: [],
   dateOverrides: {}, // dateKey -> custom slots array for that single day
@@ -307,14 +320,11 @@ async function loadMonthData() {
   ]);
   await loadStaffDirectory();
   let subs = {};
-  const keys = await apiList(`submission:${mKey}:`);
-  await Promise.all(
-    keys.map(async (k) => {
-      const name = k.split(":").slice(2).join(":");
-      const val = await apiGet(k);
-      if (val) subs[name] = val;
-    })
-  );
+  const subValues = await apiListValues(`submission:${mKey}:`);
+  for (const key in subValues) {
+    const name = key.split(":").slice(2).join(":");
+    subs[name] = subValues[key];
+  }
   state.holidays = (cfg && cfg.holidays) || [];
   state.unlockedDates = (cfg && cfg.unlockedDates) || [];
   state.dateOverrides = (cfg && cfg.dateOverrides) || {};
@@ -353,15 +363,15 @@ async function loadMyRecord() {
     const rows = [];
     let hoursTotal = 0, lateCount = 0;
 
-    const punchKeys = await apiList(`punch:${mKey}`);
-    const myKeys = punchKeys.filter((k) => k.split(":").slice(2).join(":") === state.staffName);
+    const punchValues = await apiListValues(`punch:${mKey}`);
     const recordsByDate = {};
-    await Promise.all(
-      myKeys.map(async (k) => {
-        const dStr = k.split(":")[1];
-        recordsByDate[dStr] = await apiGet(k);
-      })
-    );
+    for (const key in punchValues) {
+      const parts = key.split(":");
+      if (parts.length < 3) continue;
+      const dStr = parts[1];
+      const name = parts.slice(2).join(":");
+      if (name === state.staffName) recordsByDate[dStr] = punchValues[key];
+    }
 
     for (const d of dates) {
       if (d > now) continue;
@@ -505,7 +515,10 @@ async function submitMyShift() {
   await apiSet(`submission:${mKey}:${state.staffName}`, state.mySubmission);
   state.allSubmissions = { ...state.allSubmissions, [state.staffName]: state.mySubmission };
   state.saving = false;
-  flash("希望シフトを送信しました");
+  state.submitSuccess = true;
+  render();
+  window.scrollTo({ top: 0, behavior: "smooth" });
+  setTimeout(() => { state.submitSuccess = false; render(); }, 4000);
 }
 
 function assign(dKey, field, name) {
@@ -702,6 +715,14 @@ function renderInputTab() {
     </span>
   </div>`;
 
+  if (state.submitSuccess) {
+    html += `<div class="card" style="background:#2F6F4E;border-color:#2F6F4E;color:#fff;text-align:center;padding:20px">
+      <div style="font-size:32px">✅</div>
+      <div style="font-size:16px;font-weight:700;margin-top:6px">希望シフトを送信しました！</div>
+      <div style="font-size:12px;margin-top:4px;color:#DCE9E1">このまま画面を閉じても大丈夫です</div>
+    </div>`;
+  }
+
   if (state.showPasswordChange) {
     html += `<div class="card" style="margin-bottom:16px">
       <div style="font-size:13px;font-weight:700;margin-bottom:8px">🔑 パスワード変更</div>
@@ -742,7 +763,7 @@ function renderInputTab() {
     html += `</div>`;
   }
   html += `</div>
-    <button class="submit-btn" data-action="submit">📨 この内容で希望シフトを送信</button>`;
+    <button class="submit-btn" style="${state.submitSuccess ? "background:#8AA99B" : ""}" data-action="submit" ${state.saving ? "disabled" : ""}>${state.saving ? "送信中…" : state.submitSuccess ? "✓ 送信済み（もう一度送信する）" : "📨 この内容で希望シフトを送信"}</button>`;
   return html;
 }
 
