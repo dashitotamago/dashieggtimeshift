@@ -56,6 +56,18 @@ async function apiList(prefix) {
     return (data && data.keys) || [];
   } catch (e) { console.error("apiList failed", prefix, e); return []; }
 }
+async function apiListValues(prefix) {
+  try {
+    const res = await fetch(`${CONFIG.API_URL}?action=listValues&prefix=${encodeURIComponent(prefix)}`);
+    const data = await res.json();
+    const out = {};
+    for (const item of (data && data.items) || []) {
+      if (item.value == null || item.value === "") continue;
+      try { out[item.key] = JSON.parse(item.value); } catch (e) { /* skip malformed */ }
+    }
+    return out;
+  } catch (e) { console.error("apiListValues failed", prefix, e); return {}; }
+}
 async function apiAction(payload) {
   try {
     const res = await fetch(CONFIG.API_URL, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify(payload) });
@@ -100,23 +112,20 @@ async function loadPayroll() {
   const list = await apiGet("staffList");
   state.staffDirectory = normalizeStaffDirectory(list);
   const mKey = monthKey(state.cursor);
-  const keys = await apiList(`punch:${mKey}`);
+  const punchValues = await apiListValues(`punch:${mKey}`);
 
   // key format: punch:YYYY-MM-DD:name
-  const parsed = keys
+  const parsed = Object.keys(punchValues)
     .map((k) => {
       const parts = k.split(":");
       if (parts.length < 3) return null;
-      return { key: k, dateStr: parts[1], name: parts.slice(2).join(":") };
+      return { key: k, dateStr: parts[1], name: parts.slice(2).join(":"), records: punchValues[k] };
     })
     .filter(Boolean);
 
-  const recordsByKey = {};
-  await Promise.all(parsed.map(async (p) => { recordsByKey[p.key] = await apiGet(p.key); }));
-
   const perStaff = {}; // name -> { days: Set, hours: number }
   for (const p of parsed) {
-    const records = recordsByKey[p.key];
+    const records = p.records;
     if (!records || !records.length) continue;
     const hours = calcHoursForPunches(records);
     if (hours <= 0) continue;
