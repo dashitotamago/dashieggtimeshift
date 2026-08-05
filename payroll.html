@@ -40,6 +40,7 @@ const CONFIG = {
 function esc(s) { return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
 function fmtYen(n) { return "¥" + Math.round(n).toLocaleString("ja-JP"); }
 function monthKey(d) { return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`; }
+function dateKey(d) { return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; }
 
 async function apiGet(key) {
   try {
@@ -91,6 +92,8 @@ const state = {
   rows: [],
   dailyByDate: {}, // dateStr -> { name -> hours }
   selectedDate: "",
+  rangeStart: "",
+  rangeEnd: "",
   adminPasswordValue: null,
   showForgot: false,
   forgotStep: "request",
@@ -111,10 +114,9 @@ function calcHoursForPunches(records) {
 
 async function loadPayroll() {
   state.loading = true; render();
-  const list = await apiGet("staffList");
-  state.staffDirectory = normalizeStaffDirectory(list);
   const mKey = monthKey(state.cursor);
-  const punchValues = await apiListValues(`punch:${mKey}`);
+  const [list, punchValues] = await Promise.all([apiGet("staffList"), apiListValues(`punch:${mKey}`)]);
+  state.staffDirectory = normalizeStaffDirectory(list);
 
   // key format: punch:YYYY-MM-DD:name
   const parsed = Object.keys(punchValues)
@@ -157,10 +159,6 @@ async function loadPayroll() {
   render();
 }
 
-function changeSelectedDate(v) {
-  state.selectedDate = v;
-  render();
-}
 function copyDailyText(taId, btnId) {
   const ta = document.getElementById(taId || "dailyCopyArea");
   if (!ta) return;
@@ -217,50 +215,74 @@ function flashLogin(msg) {
 }
 function changeMonth(delta) {
   state.cursor = new Date(state.cursor.getFullYear(), state.cursor.getMonth() + delta, 1);
+  state.rangeStart = "";
+  state.rangeEnd = "";
   loadPayroll();
 }
 
-function renderDailyCopySection() {
-  const dates = Object.keys(state.dailyByDate).sort();
-  let options = "";
-  for (const d of dates) options += `<option value="${d}" ${state.selectedDate === d ? "selected" : ""}>${d}</option>`;
-
-  const dayData = state.dailyByDate[state.selectedDate] || {};
-  let names = [];
-  let amounts = [];
+function dailyTotalFor(dateStr) {
+  const dayData = state.dailyByDate[dateStr] || {};
   let total = 0;
   for (const s of state.staffDirectory) {
     const hours = dayData[s.name];
-    if (!hours) continue;
-    const cost = Math.round(hours * s.wage);
-    total += cost;
-    names.push(s.name);
-    amounts.push(String(cost));
+    if (hours) total += hours * s.wage;
   }
-  const nameText = names.join("\n");
-  const amountText = amounts.join("\n");
-  const rowCount = Math.max(3, names.length + 1);
+  return total;
+}
+
+function changeRangeStart(v) { state.rangeStart = v; render(); }
+function changeRangeEnd(v) { state.rangeEnd = v; render(); }
+
+function renderDailyCopySection() {
+  const mKey = monthKey(state.cursor);
+  const daysInMonthCount = new Date(state.cursor.getFullYear(), state.cursor.getMonth() + 1, 0).getDate();
+  const monthMin = `${mKey}-01`;
+  const monthMax = `${mKey}-${String(daysInMonthCount).padStart(2, "0")}`;
+  if (!state.rangeStart) state.rangeStart = monthMin;
+  if (!state.rangeEnd) state.rangeEnd = monthMax;
+
+  const start = state.rangeStart < monthMin ? monthMin : state.rangeStart;
+  const end = state.rangeEnd > monthMax ? monthMax : state.rangeEnd;
+
+  const dateList = [];
+  if (start && end && start <= end) {
+    let cur = new Date(start + "T00:00:00");
+    const endD = new Date(end + "T00:00:00");
+    while (cur <= endD) {
+      dateList.push(dateKey(cur));
+      cur.setDate(cur.getDate() + 1);
+    }
+  }
+
+  const amountLines = [];
+  let total = 0;
+  for (const d of dateList) {
+    const cost = Math.round(dailyTotalFor(d));
+    total += cost;
+    amountLines.push(String(cost));
+  }
+  const amountText = amountLines.join("\n");
+  const rowCount = Math.max(3, amountLines.length + 1);
 
   return `
     <div class="card">
-      <div style="font-size:14px;font-weight:700;margin-bottom:8px">📋 指定日の人件費（コピー用）</div>
-      <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px">日付を選択</label>
-      <select onchange="changeSelectedDate(this.value)">${options || `<option value="">データがありません</option>`}</select>
-      ${names.length ? `
-        <div style="display:flex;gap:12px;margin-top:10px;flex-wrap:wrap">
-          <div style="flex:1;min-width:140px">
-            <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px">名前</label>
-            <textarea id="dailyCopyNames" readonly style="width:100%;font-family:monospace;font-size:13px;border:1px solid var(--border);border-radius:6px;padding:8px;height:${rowCount * 22}px">${nameText}</textarea>
-            <button id="copyNamesBtn" class="submit-btn" style="margin-top:6px" onclick="copyDailyText('dailyCopyNames','copyNamesBtn')">📋 名前をコピー</button>
-          </div>
-          <div style="flex:1;min-width:140px">
-            <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px">人件費</label>
-            <textarea id="dailyCopyAmounts" readonly style="width:100%;font-family:monospace;font-size:13px;border:1px solid var(--border);border-radius:6px;padding:8px;height:${rowCount * 22}px">${amountText}</textarea>
-            <button id="copyAmountsBtn" class="submit-btn" style="margin-top:6px" onclick="copyDailyText('dailyCopyAmounts','copyAmountsBtn')">📋 金額をコピー</button>
-          </div>
+      <div style="font-size:14px;font-weight:700;margin-bottom:8px">📋 期間ごとの人件費（コピー用）</div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap">
+        <div style="flex:1;min-width:140px">
+          <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px">開始日</label>
+          <input type="date" value="${start}" min="${monthMin}" max="${monthMax}" onchange="changeRangeStart(this.value)" />
         </div>
-        <p class="note">それぞれ縦一列になっているので、そのままスプレッドシートの列に貼り付けられます。行の順番は名前・金額とも揃っています。合計：${fmtYen(total)}</p>
-      ` : `<p class="note" style="margin-top:8px">この日の打刻データがありません。</p>`}
+        <div style="flex:1;min-width:140px">
+          <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px">終了日</label>
+          <input type="date" value="${end}" min="${monthMin}" max="${monthMax}" onchange="changeRangeEnd(this.value)" />
+        </div>
+      </div>
+      ${amountLines.length ? `
+        <label style="font-size:12px;color:var(--muted);display:block;margin:10px 0 4px">その日の人件費（${start}〜${end}、${amountLines.length}日分）</label>
+        <textarea id="dailyCopyAmounts" readonly style="width:100%;font-family:monospace;font-size:13px;border:1px solid var(--border);border-radius:6px;padding:8px;height:${rowCount * 22}px">${amountText}</textarea>
+        <button id="copyAmountsBtn" class="submit-btn" style="margin-top:6px" onclick="copyDailyText('dailyCopyAmounts','copyAmountsBtn')">📋 金額をコピー</button>
+        <p class="note">1日1行で、その日にシフトインした全スタッフ分の合計人件費が並びます。期間合計：${fmtYen(total)}</p>
+      ` : `<p class="note" style="margin-top:8px">期間を選択してください。</p>`}
     </div>
   `;
 }
@@ -362,13 +384,19 @@ window.showForgot = showForgot;
 window.backToLogin = backToLogin;
 window.requestResetCode = requestResetCode;
 window.submitResetCode = submitResetCode;
-window.changeSelectedDate = changeSelectedDate;
+window.changeRangeStart = changeRangeStart;
+window.changeRangeEnd = changeRangeEnd;
 window.copyDailyText = copyDailyText;
 
 (async function boot() {
-  const storedPw = await apiGet("adminPassword");
-  state.adminPasswordValue = storedPw != null ? storedPw : null;
-  if (state.authed) loadPayroll(); else render();
+  if (state.authed) {
+    const [storedPw] = await Promise.all([apiGet("adminPassword"), loadPayroll()]);
+    state.adminPasswordValue = storedPw != null ? storedPw : null;
+  } else {
+    const storedPw = await apiGet("adminPassword");
+    state.adminPasswordValue = storedPw != null ? storedPw : null;
+    render();
+  }
 })();
 </script>
 </body>
