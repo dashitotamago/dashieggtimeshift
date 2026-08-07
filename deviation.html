@@ -313,6 +313,7 @@ async function loadLateSummary() {
   });
 
   const lateEvents = [];
+  const attendanceEvents = [];
   for (const p of candidates) {
     const { confirmed } = monthCache[p.mKey];
     const slots = slotsFor(p);
@@ -328,6 +329,7 @@ async function loadLateSummary() {
     if (!records) continue;
     const inTime = firstInTime(records);
     if (!inTime) continue;
+    attendanceEvents.push({ name: p.name, dateStr: p.dStr });
     const actualMin = inTime.getHours() * 60 + inTime.getMinutes();
     if (actualMin - scheduledStartMin > CONFIG.LATE_GRACE_MINUTES) lateEvents.push({ name: p.name, dateStr: p.dStr });
   }
@@ -337,9 +339,16 @@ async function loadLateSummary() {
   const q3Start = new Date(now.getFullYear(), now.getMonth() - 2, 1);
   const half1Start = new Date(now.getFullYear(), now.getMonth() - 5, 1);
   const summary = {};
-  for (const s of state.staffDirectory) summary[s.name] = { month: 0, q: 0, half: 0 };
+  for (const s of state.staffDirectory) summary[s.name] = { month: 0, q: 0, half: 0, attMonth: 0, attQ: 0, attHalf: 0 };
+  for (const ev of attendanceEvents) {
+    if (!summary[ev.name]) summary[ev.name] = { month: 0, q: 0, half: 0, attMonth: 0, attQ: 0, attHalf: 0 };
+    const d = new Date(ev.dateStr + "T00:00:00");
+    if (d >= half1Start) summary[ev.name].attHalf++;
+    if (d >= q3Start) summary[ev.name].attQ++;
+    if (d >= monthStart) summary[ev.name].attMonth++;
+  }
   for (const ev of lateEvents) {
-    if (!summary[ev.name]) summary[ev.name] = { month: 0, q: 0, half: 0 };
+    if (!summary[ev.name]) summary[ev.name] = { month: 0, q: 0, half: 0, attMonth: 0, attQ: 0, attHalf: 0 };
     const d = new Date(ev.dateStr + "T00:00:00");
     if (d >= half1Start) summary[ev.name].half++;
     if (d >= q3Start) summary[ev.name].q++;
@@ -435,6 +444,11 @@ async function saveEditPunch() {
 }
 
 // ---- rendering ----
+function lateRate(lateCount, attCount) {
+  if (!attCount) return "-";
+  return `${((lateCount / attCount) * 100).toFixed(0)}%`;
+}
+
 function dateLabelHtml(d, weekend) {
   const dow = d.getDay();
   const color = dow === 0 ? "var(--rose)" : dow === 6 ? "var(--green)" : "var(--ink)";
@@ -488,7 +502,7 @@ function renderDetailTab() {
 
   if (!state.isNewStaff && state.selectedName) {
     const stats = computeMonthStatsForStaff(state.selectedName);
-    const late = (state.lateSummary && state.lateSummary[state.selectedName]) || { month: 0, q: 0, half: 0 };
+    const late = (state.lateSummary && state.lateSummary[state.selectedName]) || { month: 0, q: 0, half: 0, attMonth: 0, attQ: 0, attHalf: 0 };
     html += `
       <div class="card">
         <div style="font-size:14px;font-weight:700;margin-bottom:8px">📊 ${state.cursor.getFullYear()}年${state.cursor.getMonth() + 1}月のまとめ</div>
@@ -499,9 +513,9 @@ function renderDetailTab() {
           <div class="summary-item"><div class="label">乖離率</div><div class="value">${stats.scheduledHours > 0 ? (stats.rate >= 0 ? "+" : "") + stats.rate.toFixed(0) + "%" : "-"}</div></div>
         </div>
         <div class="summary-row">
-          <div class="summary-item"><div class="label">遅刻(当月)</div><div class="value">${late.month}回</div></div>
-          <div class="summary-item"><div class="label">遅刻(過去3ヶ月)</div><div class="value">${late.q}回</div></div>
-          <div class="summary-item"><div class="label">遅刻(過去半年)</div><div class="value">${late.half}回</div></div>
+          <div class="summary-item"><div class="label">遅刻(当月)</div><div class="value">${late.month}回 <span style="font-size:12px;color:var(--muted)">(${lateRate(late.month, late.attMonth)})</span></div></div>
+          <div class="summary-item"><div class="label">遅刻(過去3ヶ月)</div><div class="value">${late.q}回 <span style="font-size:12px;color:var(--muted)">(${lateRate(late.q, late.attQ)})</span></div></div>
+          <div class="summary-item"><div class="label">遅刻(過去半年)</div><div class="value">${late.half}回 <span style="font-size:12px;color:var(--muted)">(${lateRate(late.half, late.attHalf)})</span></div></div>
         </div>
         ${state.lateSummaryLoading ? `<p class="note">遅刻回数を集計中…</p>` : ""}
       </div>
@@ -576,7 +590,7 @@ function renderCompareTab() {
   let rows = "";
   for (const s of state.staffDirectory) {
     const stats = computeMonthStatsForStaff(s.name);
-    const late = (state.lateSummary && state.lateSummary[s.name]) || { month: 0, q: 0, half: 0 };
+    const late = (state.lateSummary && state.lateSummary[s.name]) || { month: 0, q: 0, half: 0, attMonth: 0, attQ: 0, attHalf: 0 };
     rows += `<tr>
       <td>${esc(s.name)}</td>
       <td class="num">${fmtYen(s.wage)}</td>
@@ -584,9 +598,9 @@ function renderCompareTab() {
       <td class="num">${stats.scheduledHours.toFixed(1)}h</td>
       <td class="num">${stats.actualHours.toFixed(1)}h</td>
       <td class="num">${stats.scheduledHours > 0 ? (stats.rate >= 0 ? "+" : "") + stats.rate.toFixed(0) + "%" : "-"}</td>
-      <td class="num">${late.month}回</td>
-      <td class="num">${late.q}回</td>
-      <td class="num">${late.half}回</td>
+      <td class="num">${late.month}回（${lateRate(late.month, late.attMonth)}）</td>
+      <td class="num">${late.q}回（${lateRate(late.q, late.attQ)}）</td>
+      <td class="num">${late.half}回（${lateRate(late.half, late.attHalf)}）</td>
     </tr>`;
   }
   return `<div class="card">
