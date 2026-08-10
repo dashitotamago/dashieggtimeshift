@@ -823,6 +823,27 @@ function renderAdminTab() {
   </div>`;
 
   html += `<div class="card" style="margin-top:12px">
+    <div style="font-size:14px;font-weight:500;margin-bottom:8px">📊 今月の希望・確定回数（${state.cursor.getMonth() + 1}月）</div>
+    ${state.staffDirectory.length === 0 ? `<p style="font-size:12px;color:var(--muted2);margin:0">スタッフが登録されていません。</p>` : `
+      <table>
+        <thead><tr><th>名前</th><th class="num">希望回数</th><th class="num">確定回数</th></tr></thead>
+        <tbody>
+          ${state.staffDirectory.map((s) => {
+            const sub = state.allSubmissions[s.name] || {};
+            const requestedCount = Object.values(sub).reduce((sum, e) => sum + ((e && e.slots) ? e.slots.length : 0), 0);
+            let confirmedCount = 0;
+            for (const dKey in state.confirmed) {
+              const dayConf = state.confirmed[dKey];
+              for (const slotId in dayConf) { if (dayConf[slotId] === s.name) confirmedCount++; }
+            }
+            return `<tr><td style="padding:4px 8px 4px 0">${esc(s.name)}</td><td class="num">${requestedCount}回</td><td class="num" style="font-weight:700">${confirmedCount}回</td></tr>`;
+          }).join("")}
+        </tbody>
+      </table>
+    `}
+  </div>`;
+
+  html += `<div class="card" style="margin-top:12px">
     <div style="font-size:14px;font-weight:500;margin-bottom:4px">🕐 シフト時間・人数の設定</div>
     <p style="font-size:12px;color:var(--muted2);margin:0">枠を追加すると、その日の人数を増やせます。削除すると人数が減ります。</p>
     ${slotEditorHtml("weekday", state.weekdaySlots, "平日")}
