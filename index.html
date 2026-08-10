@@ -313,14 +313,15 @@ async function loadMonthData() {
   state.loading = true;
   render();
   const mKey = monthKey(state.cursor);
-  const [cfg, slotsCfg, conf] = await Promise.all([
+  const [cfg, slotsCfg, conf, staffList, subValues] = await Promise.all([
     apiGet(`config:${mKey}`),
     apiGet(`slotsConfig`),
     apiGet(`confirmed:${mKey}`),
+    apiGet(`staffList`),
+    apiListValues(`submission:${mKey}:`),
   ]);
-  await loadStaffDirectory();
+  state.staffDirectory = normalizeStaffDirectory(staffList);
   let subs = {};
-  const subValues = await apiListValues(`submission:${mKey}:`);
   for (const key in subValues) {
     const name = key.split(":").slice(2).join(":");
     subs[name] = subValues[key];
