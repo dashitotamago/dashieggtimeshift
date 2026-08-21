@@ -79,9 +79,14 @@ function normalizeStaffDirectory(raw) {
   if (!Array.isArray(raw)) return [];
   return raw.map((item) =>
     typeof item === "string"
-      ? { name: item, wage: 0 }
-      : { name: item.name, wage: Number(item.wage) || 0 }
+      ? { name: item, wage: 0, wageHistory: [] }
+      : { name: item.name, wage: Number(item.wage) || 0, wageHistory: Array.isArray(item.wageHistory) ? item.wageHistory : [] }
   );
+}
+function wageForMonth(s, mKey) {
+  if (!s.wageHistory || !s.wageHistory.length) return s.wage;
+  const applicable = s.wageHistory.filter((h) => h.from <= mKey).sort((a, b) => a.from.localeCompare(b.from));
+  return applicable.length ? applicable[applicable.length - 1].wage : s.wage;
 }
 
 const state = {
@@ -147,11 +152,12 @@ async function loadPayroll() {
   }
 
   const rows = [];
+  const mKeyForWage = monthKey(state.cursor);
   for (const s of state.staffDirectory) {
     const rec = perStaff[s.name];
     const days = rec ? rec.days.size : 0;
     const hours = rec ? rec.hours : 0;
-    const wageCost = hours * s.wage;
+    const wageCost = hours * wageForMonth(s, mKeyForWage);
     rows.push({ name: s.name, days, hours, wageCost, total: wageCost });
   }
   state.rows = rows;
@@ -222,10 +228,11 @@ function changeMonth(delta) {
 
 function dailyTotalFor(dateStr) {
   const dayData = state.dailyByDate[dateStr] || {};
+  const mKeyForDate = dateStr.slice(0, 7);
   let total = 0;
   for (const s of state.staffDirectory) {
     const hours = dayData[s.name];
-    if (hours) total += hours * s.wage;
+    if (hours) total += hours * wageForMonth(s, mKeyForDate);
   }
   return total;
 }
