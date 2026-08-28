@@ -59,10 +59,27 @@ const CONFIG = {
 };
 const WEEKDAY_JP = ["日", "月", "火", "水", "木", "金", "土"];
 const DEFAULT_WEEKDAY_SLOTS = [{ id: "w1", label: "ワンオペ", start: "09:00", end: "18:00" }];
-const DEFAULT_WEEKEND_SLOTS = [
+const DEFAULT_SATURDAY_SLOTS = [
   { id: "s1", label: "10:00〜15:00", start: "10:00", end: "15:00" },
   { id: "s2", label: "11:30〜16:30", start: "11:30", end: "16:30" },
 ];
+const DEFAULT_SUNDAY_HOLIDAY_SLOTS = [
+  { id: "h1", label: "10:00〜15:00", start: "10:00", end: "15:00" },
+  { id: "h2", label: "11:30〜16:30", start: "11:30", end: "16:30" },
+];
+function pickSlots(category, snapshot, liveCfg) {
+  if (snapshot) {
+    if (snapshot[category] && snapshot[category].length) return snapshot[category];
+    if (category !== "weekday" && snapshot.weekend && snapshot.weekend.length) return snapshot.weekend;
+  }
+  if (liveCfg) {
+    if (liveCfg[category] && liveCfg[category].length) return liveCfg[category];
+    if (category !== "weekday" && liveCfg.weekend && liveCfg.weekend.length) return liveCfg.weekend;
+  }
+  if (category === "weekday") return DEFAULT_WEEKDAY_SLOTS;
+  if (category === "saturday") return DEFAULT_SATURDAY_SLOTS;
+  return DEFAULT_SUNDAY_HOLIDAY_SLOTS;
+}
 
 function esc(s) { return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
 function monthKey(d) { return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`; }
@@ -165,7 +182,8 @@ const state = {
   holidays: [],
   dateOverrides: {},
   weekdaySlots: DEFAULT_WEEKDAY_SLOTS,
-  weekendSlots: DEFAULT_WEEKEND_SLOTS,
+  saturdaySlots: DEFAULT_SATURDAY_SLOTS,
+  sundayHolidaySlots: DEFAULT_SUNDAY_HOLIDAY_SLOTS,
   confirmed: {},
   punchByDate: {}, // `${dateStr}|${name}` -> records[]
   allSubmissions: {}, // name -> submission object
@@ -233,10 +251,19 @@ function getJapanHolidays(year) {
 function isPublicHoliday(d) { return !!getJapanHolidays(d.getFullYear())[dateKey(d)]; }
 
 function isWeekendType(d) { const dow = d.getDay(); return dow === 0 || dow === 6 || isPublicHoliday(d) || state.holidays.includes(dateKey(d)); }
+function dayCategory(d) {
+  const dow = d.getDay();
+  if (dow === 0 || isPublicHoliday(d) || state.holidays.includes(dateKey(d))) return "sundayHoliday";
+  if (dow === 6) return "saturday";
+  return "weekday";
+}
 function slotsForDate(d) {
   const override = state.dateOverrides[dateKey(d)];
   if (override && override.length) return override;
-  return isWeekendType(d) ? state.weekendSlots : state.weekdaySlots;
+  const cat = dayCategory(d);
+  if (cat === "sundayHoliday") return state.sundayHolidaySlots;
+  if (cat === "saturday") return state.saturdaySlots;
+  return state.weekdaySlots;
 }
 function wageOf(name) { const s = state.staffDirectory.find((x) => x.name === name); return s ? Number(s.wage) || 0 : 0; }
 
@@ -307,8 +334,9 @@ async function loadMonth() {
   state.holidays = (cfg && cfg.holidays) || [];
   state.dateOverrides = (cfg && cfg.dateOverrides) || {};
   const snap = cfg && cfg.slotsSnapshot;
-  state.weekdaySlots = (snap && snap.weekday && snap.weekday.length) ? snap.weekday : ((slotsCfg && slotsCfg.weekday && slotsCfg.weekday.length) ? slotsCfg.weekday : DEFAULT_WEEKDAY_SLOTS);
-  state.weekendSlots = (snap && snap.weekend && snap.weekend.length) ? snap.weekend : ((slotsCfg && slotsCfg.weekend && slotsCfg.weekend.length) ? slotsCfg.weekend : DEFAULT_WEEKEND_SLOTS);
+  state.weekdaySlots = pickSlots("weekday", snap, slotsCfg);
+  state.saturdaySlots = pickSlots("saturday", snap, slotsCfg);
+  state.sundayHolidaySlots = pickSlots("sundayHoliday", snap, slotsCfg);
   state.confirmed = conf || {};
 
   const punchValues = await apiListValues(`punch:${mKey}`);
@@ -348,8 +376,6 @@ async function loadLateSummary() {
   state.lateSummaryLoading = true; render();
   const [slotsCfg, resetAt] = await Promise.all([apiGet("slotsConfig"), apiGet("lateCountResetAt")]);
   state.lateCountResetAt = resetAt || null;
-  const weekdaySlots = (slotsCfg && slotsCfg.weekday && slotsCfg.weekday.length) ? slotsCfg.weekday : DEFAULT_WEEKDAY_SLOTS;
-  const weekendSlots = (slotsCfg && slotsCfg.weekend && slotsCfg.weekend.length) ? slotsCfg.weekend : DEFAULT_WEEKEND_SLOTS;
 
   const punchValues = await apiListValues("punch:");
   const now0 = new Date();
@@ -374,12 +400,8 @@ async function loadLateSummary() {
     if (override && override.length) return override;
     const d = new Date(p.dStr + "T00:00:00");
     const dow = d.getDay();
-    const weekend = dow === 0 || dow === 6 || isPublicHoliday(d) || holidays.includes(p.dStr);
-    if (slotsSnapshot) {
-      const snapSlots = weekend ? slotsSnapshot.weekend : slotsSnapshot.weekday;
-      if (snapSlots && snapSlots.length) return snapSlots;
-    }
-    return weekend ? weekendSlots : weekdaySlots;
+    const cat = (dow === 0 || isPublicHoliday(d) || holidays.includes(p.dStr)) ? "sundayHoliday" : (dow === 6 ? "saturday" : "weekday");
+    return pickSlots(cat, slotsSnapshot, slotsCfg);
   }
 
   const candidates = parsed.filter((p) => {
