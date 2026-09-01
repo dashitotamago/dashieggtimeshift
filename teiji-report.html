@@ -235,9 +235,35 @@ async function loadDayData() {
   await loadCheckpointReport();
 }
 
+function previousCheckpointId(cp) {
+  if (cp === "15") return "13";
+  if (cp === "close") return "15";
+  return null;
+}
+function blankReport() {
+  return { sales: "", overCount: "0", serviceCount: "0", callOutCount: "0", missingItems: "", adjustments: [] };
+}
+
 async function loadCheckpointReport() {
   const savedReport = await apiGet(`teijiReport:${state.targetDate}:${state.checkpoint}`);
-  state.report = savedReport || { sales: "", overCount: "0", serviceCount: "0", missingItems: "", adjustments: [] };
+  if (savedReport) {
+    state.report = { ...blankReport(), ...savedReport, adjustments: savedReport.adjustments || [] };
+  } else {
+    const prevId = previousCheckpointId(state.checkpoint);
+    const prevReport = prevId ? await apiGet(`teijiReport:${state.targetDate}:${prevId}`) : null;
+    if (prevReport) {
+      state.report = {
+        sales: prevReport.sales || "",
+        overCount: prevReport.overCount || "0",
+        serviceCount: prevReport.serviceCount || "0",
+        callOutCount: prevReport.callOutCount || "0",
+        missingItems: prevReport.missingItems || "",
+        adjustments: (prevReport.adjustments || []).map((a) => ({ ...a })),
+      };
+    } else {
+      state.report = blankReport();
+    }
+  }
   state.loading = false;
   render();
 }
@@ -332,6 +358,7 @@ function generateReportText() {
     `事前断り無し20分オーバー　${state.report.overCount || 0}件`,
     `サービス提供　${state.report.serviceCount || 0}件`,
     `（ドリンク）`,
+    `呼び込み声出し　${state.report.callOutCount || 0}回`,
     `欠品商品`,
   ];
   if (state.report.missingItems && state.report.missingItems.trim()) lines.push(state.report.missingItems.trim());
@@ -413,6 +440,7 @@ function render() {
 
       <div class="card">
         <div style="font-size:14px;font-weight:700;margin-bottom:8px">📝 報告内容の入力</div>
+        ${state.checkpoint !== "13" ? `<p class="note" style="margin-top:0">前の時間帯（${state.checkpoint === "15" ? "13時" : "15時"}）の内容（調整欄も含む）を引き継いでいます。時間が経過している分、調整欄の時間は必要に応じて書き換えてください。</p>` : ""}
         <label class="field-label">売上（税抜・円）</label>
         <input type="number" value="${state.report.sales}" onchange="updateReportField('sales', this.value)" />
         <div class="field-row">
@@ -423,6 +451,12 @@ function render() {
           <div>
             <label class="field-label">サービス提供（ドリンク・件）</label>
             <input type="number" value="${state.report.serviceCount}" onchange="updateReportField('serviceCount', this.value)" />
+          </div>
+        </div>
+        <div class="field-row">
+          <div>
+            <label class="field-label">呼び込み声出し（回）</label>
+            <input type="number" value="${state.report.callOutCount}" onchange="updateReportField('callOutCount', this.value)" />
           </div>
         </div>
         <label class="field-label" style="margin-top:10px">欠品商品（あれば入力）</label>
