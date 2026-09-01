@@ -384,9 +384,13 @@ function generateReportText() {
   const labor = totalLaborCost();
   const hours = totalLaborHours();
   const rate = sales > 0 ? (labor / sales) * 100 : 0;
+  const budget = effectiveBudget();
+  const achieveRate = budget > 0 ? (sales / budget) * 100 : 0;
   const lines = [
     title,
     `売上（税抜）：${fmtNum(sales)}`,
+    `予算：${fmtNum(budget)}`,
+    `予算達成率：${achieveRate.toFixed(1)}%`,
     `人件費：${fmtNum(labor)}`,
     `労働時間：${hours.toFixed(1)}時間`,
     `人件費率：${rate.toFixed(1)}%`,
