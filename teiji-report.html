@@ -186,6 +186,9 @@ const state = {
   holidays: [],
   slotsSnapshot: null,
   avgWage: 1200,
+  budgetWeekday: 0,
+  budgetWeekendHoliday: 0,
+  budgetModeOverride: "auto", // "auto" | "weekday" | "weekendHoliday"
   report: { sales: "", overCount: "0", serviceCount: "0", missingItems: "", adjustments: [] },
 };
 
@@ -208,6 +211,27 @@ function wageOf(name) {
   return wageForMonth(s, state.targetDate.slice(0, 7));
 }
 
+// ---- 予算(平日/土日祝) ----
+function autoBudgetMode() {
+  const d = new Date(state.targetDate + "T00:00:00");
+  const dow = d.getDay();
+  return (dow === 0 || dow === 6 || isPublicHoliday(d)) ? "weekendHoliday" : "weekday";
+}
+function effectiveBudgetMode() {
+  return state.budgetModeOverride === "auto" ? autoBudgetMode() : state.budgetModeOverride;
+}
+function effectiveBudget() {
+  return effectiveBudgetMode() === "weekendHoliday" ? state.budgetWeekendHoliday : state.budgetWeekday;
+}
+function setBudgetModeOverride(mode) { state.budgetModeOverride = mode; render(); }
+async function saveBudget(field, value) {
+  const n = Number(value) || 0;
+  if (field === "weekday") state.budgetWeekday = n;
+  else state.budgetWeekendHoliday = n;
+  await apiSet("budgetSettings", { weekday: state.budgetWeekday, weekendHoliday: state.budgetWeekendHoliday });
+  flash("予算を保存しました");
+}
+
 function flash(msg) {
   state.flash = msg;
   render();
@@ -217,12 +241,13 @@ function flash(msg) {
 async function loadDayData() {
   state.loading = true; render();
   const mKey = state.targetDate.slice(0, 7);
-  const [list, cfg, slotsCfg, conf, avgWage] = await Promise.all([
+  const [list, cfg, slotsCfg, conf, avgWage, budgetSettings] = await Promise.all([
     apiGet("staffList"),
     apiGet(`config:${mKey}`),
     apiGet("slotsConfig"),
     apiGet(`confirmed:${mKey}`),
     apiGet("avgWageForReport"),
+    apiGet("budgetSettings"),
   ]);
   state.staffDirectory = normalizeStaffDirectory(list);
   state.holidays = (cfg && cfg.holidays) || [];
@@ -232,6 +257,9 @@ async function loadDayData() {
   state.sundayHolidaySlots = pickSlots("sundayHoliday", state.slotsSnapshot, slotsCfg);
   state.confirmed = (conf && conf[state.targetDate]) || {};
   state.avgWage = avgWage != null ? avgWage : 1200;
+  state.budgetWeekday = (budgetSettings && budgetSettings.weekday) || 0;
+  state.budgetWeekendHoliday = (budgetSettings && budgetSettings.weekendHoliday) || 0;
+  state.budgetModeOverride = "auto";
   await loadCheckpointReport();
 }
 
@@ -358,7 +386,7 @@ function generateReportText() {
     `事前断り無し20分オーバー　${state.report.overCount || 0}件`,
     `サービス提供　${state.report.serviceCount || 0}件`,
     `（ドリンク）`,
-    `呼び込み声出し　${state.report.callOutCount || 0}回`,
+    `呼び込み声出し(80db以上)　${state.report.callOutCount || 0}回`,
     `欠品商品`,
   ];
   if (state.report.missingItems && state.report.missingItems.trim()) lines.push(state.report.missingItems.trim());
@@ -416,6 +444,32 @@ function render() {
       </div>
 
       <div class="card">
+        <div style="font-size:14px;font-weight:700;margin-bottom:4px">🎯 予算</div>
+        <div class="field-row">
+          <div>
+            <label class="field-label">平日の予算（円）</label>
+            <input type="number" value="${state.budgetWeekday}" onchange="saveBudget('weekday', this.value)" />
+          </div>
+          <div>
+            <label class="field-label">土日祝の予算（円）</label>
+            <input type="number" value="${state.budgetWeekendHoliday}" onchange="saveBudget('weekendHoliday', this.value)" />
+          </div>
+        </div>
+        <p class="note">一度入力すれば、変更するまでそのまま使われ続けます。</p>
+        <label class="field-label" style="margin-top:10px">今日のモード</label>
+        <div class="checkpoint-tabs">
+          <button class="checkpoint-btn ${state.budgetModeOverride === "auto" ? "active" : ""}" onclick="setBudgetModeOverride('auto')">自動（${autoBudgetMode() === "weekendHoliday" ? "今日は土日祝" : "今日は平日"}）</button>
+          <button class="checkpoint-btn ${state.budgetModeOverride === "weekday" ? "active" : ""}" onclick="setBudgetModeOverride('weekday')">平日</button>
+          <button class="checkpoint-btn ${state.budgetModeOverride === "weekendHoliday" ? "active" : ""}" onclick="setBudgetModeOverride('weekendHoliday')">土日祝</button>
+        </div>
+        <div class="summary-row">
+          <div class="summary-item"><div class="label">適用中の予算</div><div class="value">${fmtYen(effectiveBudget())}</div></div>
+          <div class="summary-item"><div class="label">現在の売上</div><div class="value">${fmtYen(Number(state.report.sales) || 0)}</div></div>
+          <div class="summary-item"><div class="label">達成率</div><div class="value">${effectiveBudget() > 0 ? (((Number(state.report.sales) || 0) / effectiveBudget()) * 100).toFixed(1) + "%" : "-"}</div></div>
+        </div>
+      </div>
+
+      <div class="card">
         <div style="font-size:14px;font-weight:700;margin-bottom:4px">💰 人件費（確定シフトから自動計算）</div>
         <div class="summary-row">
           <div class="summary-item"><div class="label">シフトからの計算分</div><div class="value">${fmtYen(calcOnly)}</div></div>
@@ -455,7 +509,7 @@ function render() {
         </div>
         <div class="field-row">
           <div>
-            <label class="field-label">呼び込み声出し（回）</label>
+            <label class="field-label">呼び込み声出し（80db以上・回）</label>
             <input type="number" value="${state.report.callOutCount}" onchange="updateReportField('callOutCount', this.value)" />
           </div>
         </div>
@@ -483,6 +537,8 @@ window.updateAdjustmentAmountDirect = updateAdjustmentAmountDirect;
 window.saveAvgWage = saveAvgWage;
 window.saveReport = saveReport;
 window.copyReportText = copyReportText;
+window.saveBudget = saveBudget;
+window.setBudgetModeOverride = setBudgetModeOverride;
 
 (async function boot() {
   await loadDayData();
