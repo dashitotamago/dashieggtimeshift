@@ -189,6 +189,7 @@ const state = {
   budgetWeekday: 0,
   budgetWeekendHoliday: 0,
   budgetModeOverride: "auto", // "auto" | "weekday" | "weekendHoliday"
+  reportDirty: true,
   report: { sales: "", overCount: "0", serviceCount: "0", missingItems: "", adjustments: [] },
 };
 
@@ -206,9 +207,9 @@ function slotsForDate(d) {
   return state.weekdaySlots;
 }
 function wageOf(name) {
-  const s = state.staffDirectory.find((x) => x.name === name);
-  if (!s) return state.avgWage;
-  return wageForMonth(s, state.targetDate.slice(0, 7));
+  // この報告は概算値のため、個々のスタッフの実際の時給ではなく、
+  // 設定された「平均時給」をそのまま一律で使う。
+  return state.avgWage;
 }
 
 // ---- 予算(平日/土日祝) ----
@@ -276,6 +277,7 @@ async function loadCheckpointReport() {
   const savedReport = await apiGet(`teijiReport:${state.targetDate}:${state.checkpoint}`);
   if (savedReport) {
     state.report = { ...blankReport(), ...savedReport, adjustments: savedReport.adjustments || [] };
+    state.reportDirty = false;
   } else {
     const prevId = previousCheckpointId(state.checkpoint);
     const prevReport = prevId ? await apiGet(`teijiReport:${state.targetDate}:${prevId}`) : null;
@@ -291,6 +293,7 @@ async function loadCheckpointReport() {
     } else {
       state.report = blankReport();
     }
+    state.reportDirty = true;
   }
   state.loading = false;
   render();
@@ -338,12 +341,13 @@ function adjustmentHoursTotal() {
 function totalLaborCost() { return calculatedLaborCost() + adjustmentTotal(); }
 function totalLaborHours() { return calculatedLaborHours() + adjustmentHoursTotal(); }
 
-function updateReportField(field, value) { state.report[field] = value; render(); }
+function updateReportField(field, value) { state.report[field] = value; state.reportDirty = true; render(); }
 function addAdjustment() {
   state.report.adjustments.push({ label: "", hours: "", wage: state.avgWage, amount: 0 });
+  state.reportDirty = true;
   render();
 }
-function removeAdjustment(i) { state.report.adjustments.splice(i, 1); render(); }
+function removeAdjustment(i) { state.report.adjustments.splice(i, 1); state.reportDirty = true; render(); }
 function updateAdjustment(i, field, value) {
   const a = state.report.adjustments[i];
   a[field] = value;
@@ -352,10 +356,12 @@ function updateAdjustment(i, field, value) {
     const w = Number(a.wage) || 0;
     a.amount = Math.round(h * w);
   }
+  state.reportDirty = true;
   render();
 }
 function updateAdjustmentAmountDirect(i, value) {
   state.report.adjustments[i].amount = Number(value) || 0;
+  state.reportDirty = true;
   render();
 }
 
@@ -367,6 +373,7 @@ async function saveReport() {
   state.saving = true; render();
   await apiSet(`teijiReport:${state.targetDate}:${state.checkpoint}`, state.report);
   state.saving = false;
+  state.reportDirty = false;
   flash("報告内容を保存しました");
 }
 
@@ -394,6 +401,10 @@ function generateReportText() {
 }
 
 function copyReportText() {
+  if (state.reportDirty) {
+    flash("先に「この内容を保存」を押してください");
+    return;
+  }
   const ta = document.getElementById("reportTextArea");
   if (!ta) return;
   ta.select();
@@ -489,7 +500,7 @@ function render() {
             <input type="number" value="${state.avgWage}" onchange="saveAvgWage(this.value)" />
           </div>
         </div>
-        <p class="note">スタッフ名が登録されていない場合の調整計算などに使われます。</p>
+        <p class="note">この報告での人件費はすべて、この平均時給で概算計算します（スタッフごとの実際の時給は使いません）。</p>
       </div>
 
       <div class="card">
@@ -521,7 +532,7 @@ function render() {
       <div class="card">
         <div style="font-size:14px;font-weight:700;margin-bottom:4px">✅ 生成された報告文</div>
         <textarea id="reportTextArea" readonly class="report-text" rows="10">${esc(generateReportText())}</textarea>
-        <button id="copyReportBtn" class="submit-btn" onclick="copyReportText()">📋 報告文をコピー</button>
+        <button id="copyReportBtn" class="submit-btn" style="${state.reportDirty ? "background:var(--muted2);cursor:not-allowed" : ""}" onclick="copyReportText()">${state.reportDirty ? "⚠ 先に保存してください" : "📋 報告文をコピー"}</button>
       </div>
     </div>
   `;
