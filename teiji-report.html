@@ -214,16 +214,15 @@ function flash(msg) {
   setTimeout(() => { state.flash = ""; render(); }, 2000);
 }
 
-async function loadForDate() {
+async function loadDayData() {
   state.loading = true; render();
   const mKey = state.targetDate.slice(0, 7);
-  const [list, cfg, slotsCfg, conf, avgWage, savedReport] = await Promise.all([
+  const [list, cfg, slotsCfg, conf, avgWage] = await Promise.all([
     apiGet("staffList"),
     apiGet(`config:${mKey}`),
     apiGet("slotsConfig"),
     apiGet(`confirmed:${mKey}`),
     apiGet("avgWageForReport"),
-    apiGet(`teijiReport:${state.targetDate}:${state.checkpoint}`),
   ]);
   state.staffDirectory = normalizeStaffDirectory(list);
   state.holidays = (cfg && cfg.holidays) || [];
@@ -233,13 +232,22 @@ async function loadForDate() {
   state.sundayHolidaySlots = pickSlots("sundayHoliday", state.slotsSnapshot, slotsCfg);
   state.confirmed = (conf && conf[state.targetDate]) || {};
   state.avgWage = avgWage != null ? avgWage : 1200;
+  await loadCheckpointReport();
+}
+
+async function loadCheckpointReport() {
+  const savedReport = await apiGet(`teijiReport:${state.targetDate}:${state.checkpoint}`);
   state.report = savedReport || { sales: "", overCount: "0", serviceCount: "0", missingItems: "", adjustments: [] };
   state.loading = false;
   render();
 }
 
-function changeDate(v) { state.targetDate = v; loadForDate(); }
-function changeCheckpoint(cp) { state.checkpoint = cp; loadForDate(); }
+function changeDate(v) { state.targetDate = v; loadDayData(); }
+function changeCheckpoint(cp) {
+  state.checkpoint = cp;
+  state.loading = true; render();
+  loadCheckpointReport();
+}
 
 function checkpointMinutes() {
   if (state.checkpoint === "13") return 13 * 60;
@@ -247,11 +255,11 @@ function checkpointMinutes() {
   return Infinity; // close: full day
 }
 
-function calculatedLaborCost() {
+function calculatedLaborStats() {
   const d = new Date(state.targetDate + "T00:00:00");
   const slots = slotsForDate(d);
   const cpMin = checkpointMinutes();
-  let total = 0;
+  let hours = 0, cost = 0;
   for (const s of slots) {
     const name = state.confirmed[s.id];
     if (!name) continue;
@@ -259,14 +267,22 @@ function calculatedLaborCost() {
     const endMin = hmToMinutes(s.end);
     const elapsedEnd = Math.min(cpMin, endMin);
     const minutes = Math.max(0, elapsedEnd - startMin);
-    total += (minutes / 60) * wageOf(name);
+    const h = minutes / 60;
+    hours += h;
+    cost += h * wageOf(name);
   }
-  return total;
+  return { hours, cost };
 }
+function calculatedLaborCost() { return calculatedLaborStats().cost; }
+function calculatedLaborHours() { return calculatedLaborStats().hours; }
 function adjustmentTotal() {
   return state.report.adjustments.reduce((sum, a) => sum + (Number(a.amount) || 0), 0);
 }
+function adjustmentHoursTotal() {
+  return state.report.adjustments.reduce((sum, a) => sum + (Number(a.hours) || 0), 0);
+}
 function totalLaborCost() { return calculatedLaborCost() + adjustmentTotal(); }
+function totalLaborHours() { return calculatedLaborHours() + adjustmentHoursTotal(); }
 
 function updateReportField(field, value) { state.report[field] = value; render(); }
 function addAdjustment() {
@@ -305,11 +321,13 @@ function generateReportText() {
   const title = state.checkpoint === "close" ? "クローズ定時報告致します。" : `${cpInfo.label}定時報告致します。`;
   const sales = Number(state.report.sales) || 0;
   const labor = totalLaborCost();
+  const hours = totalLaborHours();
   const rate = sales > 0 ? (labor / sales) * 100 : 0;
   const lines = [
     title,
     `売上（税抜）：${fmtNum(sales)}`,
     `人件費：${fmtNum(labor)}`,
+    `労働時間：${hours.toFixed(1)}時間`,
     `人件費率：${rate.toFixed(1)}%`,
     `事前断り無し20分オーバー　${state.report.overCount || 0}件`,
     `サービス提供　${state.report.serviceCount || 0}件`,
@@ -376,6 +394,7 @@ function render() {
           <div class="summary-item"><div class="label">シフトからの計算分</div><div class="value">${fmtYen(calcOnly)}</div></div>
           <div class="summary-item"><div class="label">調整分（±）</div><div class="value">${adjTotal >= 0 ? "+" : ""}${fmtYen(adjTotal)}</div></div>
           <div class="summary-item"><div class="label">人件費合計</div><div class="value">${fmtYen(labor)}</div></div>
+          <div class="summary-item"><div class="label">労働時間</div><div class="value">${totalLaborHours().toFixed(1)}h</div></div>
         </div>
         <p class="note">「${CHECKPOINTS.find((c) => c.id === state.checkpoint).label}」の時点までに経過したシフト時間 × 時給で自動計算しています。</p>
 
@@ -432,7 +451,7 @@ window.saveReport = saveReport;
 window.copyReportText = copyReportText;
 
 (async function boot() {
-  await loadForDate();
+  await loadDayData();
 })();
 </script>
 </body>
