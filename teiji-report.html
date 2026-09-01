@@ -1,0 +1,439 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>定時報告作成</title>
+<style>
+  :root {
+    --bg: #F6F3EC; --ink: #22282F; --border: #DED7C6;
+    --green: #2F6F4E; --orange: #B5541E; --rose: #C1666B; --blue: #3A6EA5;
+    --muted: #7A756A; --muted2: #9A968C;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font-family: "Hiragino Kaku Gothic ProN", "Yu Gothic", "Meiryo", sans-serif; }
+  .disp { font-family: "Hiragino Mincho ProN", "Yu Mincho", serif; font-weight: 700; }
+  header { background: var(--ink); padding: 20px; }
+  header h1 { margin: 0; color: #F6F3EC; font-size: 20px; text-align: center; }
+  .wrap { max-width: 640px; margin: 0 auto; padding: 20px; }
+  .card { background: #fff; border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin-top: 16px; }
+  input[type=text], input[type=number], input[type=password], input[type=date] {
+    width: 100%; border: 1px solid var(--border); border-radius: 6px; padding: 10px; font-size: 15px;
+  }
+  textarea { width: 100%; border: 1px solid var(--border); border-radius: 6px; padding: 10px; font-size: 14px; font-family: inherit; }
+  .field-label { font-size: 12px; font-weight: 500; color: var(--muted); display: block; margin-bottom: 4px; }
+  .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
+  .field-row:first-child { margin-top: 0; }
+  .submit-btn { width: 100%; padding: 14px; margin-top: 12px; background: var(--green); color: #fff; border: none; border-radius: 6px; font-size: 16px; font-weight: 700; cursor: pointer; }
+  .save-btn { background: var(--ink); color: #fff; border: none; border-radius: 6px; padding: 10px 18px; font-size: 14px; font-weight: 700; cursor: pointer; }
+  .add-btn { background: var(--orange); color: #fff; border: none; border-radius: 4px; padding: 8px 14px; font-size: 13px; cursor: pointer; }
+  .remove-btn { background: none; border: 1px solid var(--rose); color: var(--rose); border-radius: 4px; padding: 6px 10px; font-size: 12px; cursor: pointer; }
+  .checkpoint-tabs { display: flex; gap: 8px; margin-top: 10px; }
+  .checkpoint-btn { flex: 1; padding: 10px; border-radius: 6px; border: 1px solid var(--border); background: #fff; color: var(--muted); font-size: 14px; font-weight: 700; cursor: pointer; }
+  .checkpoint-btn.active { background: var(--green); border-color: var(--green); color: #fff; }
+  .summary-row { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 8px; }
+  .summary-item { flex: 1; min-width: 120px; }
+  .summary-item .label { font-size: 11px; color: var(--muted); }
+  .summary-item .value { font-size: 20px; font-weight: 700; }
+  .adj-row { display: flex; gap: 8px; align-items: center; margin-top: 8px; flex-wrap: wrap; }
+  .adj-row input { flex: 1; min-width: 80px; }
+  .note { font-size: 12px; color: var(--muted2); margin-top: 8px; }
+  .center-msg { text-align: center; padding: 80px 24px; color: var(--muted); }
+  .report-text { white-space: pre-wrap; font-size: 15px; line-height: 1.6; background: #FBF8F2; border: 1px solid var(--border); border-radius: 6px; padding: 14px; margin-top: 10px; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script>
+const CONFIG = {
+  API_URL: "https://script.google.com/macros/s/AKfycbzOSPmWXfZTvMLiOa8bucfhU3UgJdUqxucc7NWDCq2WMRHsjHqPFRDm34F8S3og8i_b/exec",
+  ADMIN_PASSWORD: "0310",
+};
+const DEFAULT_WEEKDAY_SLOTS = [{ id: "w1", label: "ワンオペ", start: "09:00", end: "18:00" }];
+const DEFAULT_SATURDAY_SLOTS = [
+  { id: "s1", label: "10:00〜15:00", start: "10:00", end: "15:00" },
+  { id: "s2", label: "11:30〜16:30", start: "11:30", end: "16:30" },
+];
+const DEFAULT_SUNDAY_HOLIDAY_SLOTS = [
+  { id: "h1", label: "10:00〜15:00", start: "10:00", end: "15:00" },
+  { id: "h2", label: "11:30〜16:30", start: "11:30", end: "16:30" },
+];
+const CHECKPOINTS = [
+  { id: "13", label: "13時" },
+  { id: "15", label: "15時" },
+  { id: "close", label: "クローズ" },
+];
+
+function esc(s) { return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
+function monthKey(d) { return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`; }
+function dateKey(d) { return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; }
+function hmToMinutes(hm) { const [h, m] = String(hm).split(":").map(Number); return (h || 0) * 60 + (m || 0); }
+function fmtYen(n) { return "¥" + Math.round(n).toLocaleString("ja-JP"); }
+function fmtNum(n) { return Math.round(n).toLocaleString("ja-JP"); }
+
+// ---- 日本の祝日を自動計算 ----
+const _holidayCache = {};
+function nthMonday(year, month, n) {
+  const d = new Date(year, month - 1, 1);
+  let count = 0;
+  while (true) {
+    if (d.getDay() === 1) { count++; if (count === n) return new Date(d); }
+    d.setDate(d.getDate() + 1);
+  }
+}
+function vernalEquinox(year) { return Math.floor(20.8431 + 0.242194 * (year - 1980) - Math.floor((year - 1980) / 4)); }
+function autumnalEquinox(year) { return Math.floor(23.2488 + 0.242194 * (year - 1980) - Math.floor((year - 1980) / 4)); }
+function getJapanHolidays(year) {
+  if (_holidayCache[year]) return _holidayCache[year];
+  const list = [];
+  const add = (m, d, name) => list.push({ date: new Date(year, m - 1, d), name });
+  add(1, 1, "元日");
+  list.push({ date: nthMonday(year, 1, 2), name: "成人の日" });
+  add(2, 11, "建国記念の日");
+  add(2, 23, "天皇誕生日");
+  add(3, vernalEquinox(year), "春分の日");
+  add(4, 29, "昭和の日");
+  add(5, 3, "憲法記念日");
+  add(5, 4, "みどりの日");
+  add(5, 5, "こどもの日");
+  list.push({ date: nthMonday(year, 7, 3), name: "海の日" });
+  add(8, 11, "山の日");
+  list.push({ date: nthMonday(year, 9, 3), name: "敬老の日" });
+  add(9, autumnalEquinox(year), "秋分の日");
+  list.push({ date: nthMonday(year, 10, 2), name: "スポーツの日" });
+  add(11, 3, "文化の日");
+  add(11, 23, "勤労感謝の日");
+  const byKey = {};
+  for (const h of list) byKey[dateKey(h.date)] = h.name;
+  for (const h of [...list]) {
+    if (h.date.getDay() === 0) {
+      let sub = new Date(h.date);
+      do { sub.setDate(sub.getDate() + 1); } while (byKey[dateKey(sub)]);
+      byKey[dateKey(sub)] = "振替休日";
+    }
+  }
+  const sortedKeys = Object.keys(byKey).sort();
+  for (const k of sortedKeys) {
+    const d = new Date(k + "T00:00:00");
+    const next = new Date(d); next.setDate(next.getDate() + 2);
+    const between = new Date(d); between.setDate(between.getDate() + 1);
+    if (between.getDay() !== 0 && !byKey[dateKey(between)] && byKey[dateKey(next)]) byKey[dateKey(between)] = "国民の休日";
+  }
+  _holidayCache[year] = byKey;
+  return byKey;
+}
+function isPublicHoliday(d) { return !!getJapanHolidays(d.getFullYear())[dateKey(d)]; }
+
+function pickSlots(category, snapshot, liveCfg) {
+  if (snapshot) {
+    if (snapshot[category] && snapshot[category].length) return snapshot[category];
+    if (category !== "weekday" && snapshot.weekend && snapshot.weekend.length) return snapshot.weekend;
+  }
+  if (liveCfg) {
+    if (liveCfg[category] && liveCfg[category].length) return liveCfg[category];
+    if (category !== "weekday" && liveCfg.weekend && liveCfg.weekend.length) return liveCfg.weekend;
+  }
+  if (category === "weekday") return DEFAULT_WEEKDAY_SLOTS;
+  if (category === "saturday") return DEFAULT_SATURDAY_SLOTS;
+  return DEFAULT_SUNDAY_HOLIDAY_SLOTS;
+}
+function wageForMonth(s, mKey) {
+  if (!s.wageHistory || !s.wageHistory.length) return s.wage;
+  const applicable = s.wageHistory.filter((h) => h.from <= mKey).sort((a, b) => a.from.localeCompare(b.from));
+  return applicable.length ? applicable[applicable.length - 1].wage : s.wage;
+}
+function normalizeStaffDirectory(raw) {
+  if (!Array.isArray(raw)) return [];
+  return raw.map((item) =>
+    typeof item === "string"
+      ? { name: item, wage: 0, wageHistory: [] }
+      : { name: item.name, wage: Number(item.wage) || 0, wageHistory: Array.isArray(item.wageHistory) ? item.wageHistory : [] }
+  );
+}
+
+async function apiGet(key) {
+  try {
+    const res = await fetch(`${CONFIG.API_URL}?action=get&key=${encodeURIComponent(key)}`);
+    const data = await res.json();
+    if (!data || data.value == null || data.value === "") return null;
+    return JSON.parse(data.value);
+  } catch (e) { console.error("apiGet failed", key, e); return null; }
+}
+async function apiSet(key, value) {
+  try {
+    await fetch(CONFIG.API_URL, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify({ action: "set", key, value: JSON.stringify(value) }) });
+    return true;
+  } catch (e) { console.error("apiSet failed", key, e); return false; }
+}
+async function apiAction(payload) {
+  try {
+    const res = await fetch(CONFIG.API_URL, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify(payload) });
+    return await res.json();
+  } catch (e) { console.error("apiAction failed", payload, e); return { error: String(e) }; }
+}
+
+const state = {
+  flash: "",
+  loading: true,
+  saving: false,
+  targetDate: dateKey(new Date()),
+  checkpoint: "15",
+  staffDirectory: [],
+  confirmed: {},
+  weekdaySlots: DEFAULT_WEEKDAY_SLOTS,
+  saturdaySlots: DEFAULT_SATURDAY_SLOTS,
+  sundayHolidaySlots: DEFAULT_SUNDAY_HOLIDAY_SLOTS,
+  holidays: [],
+  slotsSnapshot: null,
+  avgWage: 1200,
+  report: { sales: "", overCount: "0", serviceCount: "0", missingItems: "", adjustments: [] },
+};
+
+function isWeekendType(d) { const dow = d.getDay(); return dow === 0 || dow === 6 || isPublicHoliday(d) || state.holidays.includes(dateKey(d)); }
+function dayCategory(d) {
+  const dow = d.getDay();
+  if (dow === 0 || isPublicHoliday(d) || state.holidays.includes(dateKey(d))) return "sundayHoliday";
+  if (dow === 6) return "saturday";
+  return "weekday";
+}
+function slotsForDate(d) {
+  const cat = dayCategory(d);
+  if (cat === "sundayHoliday") return state.sundayHolidaySlots;
+  if (cat === "saturday") return state.saturdaySlots;
+  return state.weekdaySlots;
+}
+function wageOf(name) {
+  const s = state.staffDirectory.find((x) => x.name === name);
+  if (!s) return state.avgWage;
+  return wageForMonth(s, state.targetDate.slice(0, 7));
+}
+
+function flash(msg) {
+  state.flash = msg;
+  render();
+  setTimeout(() => { state.flash = ""; render(); }, 2000);
+}
+
+async function loadForDate() {
+  state.loading = true; render();
+  const mKey = state.targetDate.slice(0, 7);
+  const [list, cfg, slotsCfg, conf, avgWage, savedReport] = await Promise.all([
+    apiGet("staffList"),
+    apiGet(`config:${mKey}`),
+    apiGet("slotsConfig"),
+    apiGet(`confirmed:${mKey}`),
+    apiGet("avgWageForReport"),
+    apiGet(`teijiReport:${state.targetDate}:${state.checkpoint}`),
+  ]);
+  state.staffDirectory = normalizeStaffDirectory(list);
+  state.holidays = (cfg && cfg.holidays) || [];
+  state.slotsSnapshot = (cfg && cfg.slotsSnapshot) || null;
+  state.weekdaySlots = pickSlots("weekday", state.slotsSnapshot, slotsCfg);
+  state.saturdaySlots = pickSlots("saturday", state.slotsSnapshot, slotsCfg);
+  state.sundayHolidaySlots = pickSlots("sundayHoliday", state.slotsSnapshot, slotsCfg);
+  state.confirmed = (conf && conf[state.targetDate]) || {};
+  state.avgWage = avgWage != null ? avgWage : 1200;
+  state.report = savedReport || { sales: "", overCount: "0", serviceCount: "0", missingItems: "", adjustments: [] };
+  state.loading = false;
+  render();
+}
+
+function changeDate(v) { state.targetDate = v; loadForDate(); }
+function changeCheckpoint(cp) { state.checkpoint = cp; loadForDate(); }
+
+function checkpointMinutes() {
+  if (state.checkpoint === "13") return 13 * 60;
+  if (state.checkpoint === "15") return 15 * 60;
+  return Infinity; // close: full day
+}
+
+function calculatedLaborCost() {
+  const d = new Date(state.targetDate + "T00:00:00");
+  const slots = slotsForDate(d);
+  const cpMin = checkpointMinutes();
+  let total = 0;
+  for (const s of slots) {
+    const name = state.confirmed[s.id];
+    if (!name) continue;
+    const startMin = hmToMinutes(s.start);
+    const endMin = hmToMinutes(s.end);
+    const elapsedEnd = Math.min(cpMin, endMin);
+    const minutes = Math.max(0, elapsedEnd - startMin);
+    total += (minutes / 60) * wageOf(name);
+  }
+  return total;
+}
+function adjustmentTotal() {
+  return state.report.adjustments.reduce((sum, a) => sum + (Number(a.amount) || 0), 0);
+}
+function totalLaborCost() { return calculatedLaborCost() + adjustmentTotal(); }
+
+function updateReportField(field, value) { state.report[field] = value; render(); }
+function addAdjustment() {
+  state.report.adjustments.push({ label: "", hours: "", wage: state.avgWage, amount: 0 });
+  render();
+}
+function removeAdjustment(i) { state.report.adjustments.splice(i, 1); render(); }
+function updateAdjustment(i, field, value) {
+  const a = state.report.adjustments[i];
+  a[field] = value;
+  if (field === "hours" || field === "wage") {
+    const h = Number(a.hours) || 0;
+    const w = Number(a.wage) || 0;
+    a.amount = Math.round(h * w);
+  }
+  render();
+}
+function updateAdjustmentAmountDirect(i, value) {
+  state.report.adjustments[i].amount = Number(value) || 0;
+  render();
+}
+
+async function saveAvgWage(value) {
+  state.avgWage = Number(value) || 0;
+  await apiSet("avgWageForReport", state.avgWage);
+}
+async function saveReport() {
+  state.saving = true; render();
+  await apiSet(`teijiReport:${state.targetDate}:${state.checkpoint}`, state.report);
+  state.saving = false;
+  flash("報告内容を保存しました");
+}
+
+function generateReportText() {
+  const cpInfo = CHECKPOINTS.find((c) => c.id === state.checkpoint);
+  const title = state.checkpoint === "close" ? "クローズ定時報告致します。" : `${cpInfo.label}定時報告致します。`;
+  const sales = Number(state.report.sales) || 0;
+  const labor = totalLaborCost();
+  const rate = sales > 0 ? (labor / sales) * 100 : 0;
+  const lines = [
+    title,
+    `売上（税抜）：${fmtNum(sales)}`,
+    `人件費：${fmtNum(labor)}`,
+    `人件費率：${rate.toFixed(1)}%`,
+    `事前断り無し20分オーバー　${state.report.overCount || 0}件`,
+    `サービス提供　${state.report.serviceCount || 0}件`,
+    `（ドリンク）`,
+    `欠品商品`,
+  ];
+  if (state.report.missingItems && state.report.missingItems.trim()) lines.push(state.report.missingItems.trim());
+  return lines.join("\n");
+}
+
+function copyReportText() {
+  const ta = document.getElementById("reportTextArea");
+  if (!ta) return;
+  ta.select();
+  ta.setSelectionRange(0, 99999);
+  try {
+    document.execCommand("copy");
+    const btn = document.getElementById("copyReportBtn");
+    if (btn) { const orig = btn.textContent; btn.textContent = "コピーしました！"; setTimeout(() => { btn.textContent = orig; }, 1500); }
+  } catch (e) { /* ignore */ }
+}
+
+function render() {
+  const root = document.getElementById("root");
+
+  if (state.loading) {
+    root.innerHTML = `<header><h1 class="disp">📋 定時報告作成</h1></header><div class="wrap"><div class="center-msg">読み込み中…</div></div>`;
+    return;
+  }
+
+  const labor = totalLaborCost();
+  const calcOnly = calculatedLaborCost();
+  const adjTotal = adjustmentTotal();
+
+  let adjRows = "";
+  state.report.adjustments.forEach((a, i) => {
+    adjRows += `<div class="adj-row">
+      <input type="text" placeholder="内容(例:応援で+1h)" value="${esc(a.label)}" onchange="updateAdjustment(${i},'label',this.value)" />
+      <input type="number" placeholder="時間" value="${a.hours}" style="max-width:70px" onchange="updateAdjustment(${i},'hours',this.value)" />
+      <span style="font-size:12px;color:var(--muted)">h ×</span>
+      <input type="number" placeholder="時給" value="${a.wage}" style="max-width:80px" onchange="updateAdjustment(${i},'wage',this.value)" />
+      <span style="font-size:12px;color:var(--muted)">円=</span>
+      <input type="number" placeholder="金額" value="${a.amount}" style="max-width:90px;font-weight:700" onchange="updateAdjustmentAmountDirect(${i},this.value)" />
+      <button class="remove-btn" onclick="removeAdjustment(${i})">削除</button>
+    </div>`;
+  });
+
+  root.innerHTML = `
+    <header><h1 class="disp">📋 定時報告作成</h1></header>
+    <div class="wrap">
+      ${state.flash ? `<div class="note" style="color:var(--green);font-weight:700">${esc(state.flash)}</div>` : ""}
+      <div class="card">
+        <label class="field-label">対象日</label>
+        <input type="date" value="${state.targetDate}" onchange="changeDate(this.value)" />
+        <label class="field-label" style="margin-top:10px">報告タイミング</label>
+        <div class="checkpoint-tabs">
+          ${CHECKPOINTS.map((c) => `<button class="checkpoint-btn ${state.checkpoint === c.id ? "active" : ""}" onclick="changeCheckpoint('${c.id}')">${c.label}</button>`).join("")}
+        </div>
+      </div>
+
+      <div class="card">
+        <div style="font-size:14px;font-weight:700;margin-bottom:4px">💰 人件費（確定シフトから自動計算）</div>
+        <div class="summary-row">
+          <div class="summary-item"><div class="label">シフトからの計算分</div><div class="value">${fmtYen(calcOnly)}</div></div>
+          <div class="summary-item"><div class="label">調整分（±）</div><div class="value">${adjTotal >= 0 ? "+" : ""}${fmtYen(adjTotal)}</div></div>
+          <div class="summary-item"><div class="label">人件費合計</div><div class="value">${fmtYen(labor)}</div></div>
+        </div>
+        <p class="note">「${CHECKPOINTS.find((c) => c.id === state.checkpoint).label}」の時点までに経過したシフト時間 × 時給で自動計算しています。</p>
+
+        <div class="note" style="margin-top:12px;font-weight:700;color:var(--ink)">シフトと違う時間に入ったスタッフの調整（＋／－）</div>
+        ${adjRows}
+        <button class="add-btn" style="margin-top:8px" onclick="addAdjustment()">＋ 調整を追加</button>
+
+        <div class="field-row" style="margin-top:14px">
+          <div>
+            <label class="field-label">人件費計算用 平均時給（円）</label>
+            <input type="number" value="${state.avgWage}" onchange="saveAvgWage(this.value)" />
+          </div>
+        </div>
+        <p class="note">スタッフ名が登録されていない場合の調整計算などに使われます。</p>
+      </div>
+
+      <div class="card">
+        <div style="font-size:14px;font-weight:700;margin-bottom:8px">📝 報告内容の入力</div>
+        <label class="field-label">売上（税抜・円）</label>
+        <input type="number" value="${state.report.sales}" onchange="updateReportField('sales', this.value)" />
+        <div class="field-row">
+          <div>
+            <label class="field-label">事前断り無し20分オーバー（件）</label>
+            <input type="number" value="${state.report.overCount}" onchange="updateReportField('overCount', this.value)" />
+          </div>
+          <div>
+            <label class="field-label">サービス提供（ドリンク・件）</label>
+            <input type="number" value="${state.report.serviceCount}" onchange="updateReportField('serviceCount', this.value)" />
+          </div>
+        </div>
+        <label class="field-label" style="margin-top:10px">欠品商品（あれば入力）</label>
+        <textarea rows="2" onchange="updateReportField('missingItems', this.value)">${esc(state.report.missingItems)}</textarea>
+        <button class="save-btn" style="margin-top:12px" onclick="saveReport()">💾 この内容を保存</button>
+      </div>
+
+      <div class="card">
+        <div style="font-size:14px;font-weight:700;margin-bottom:4px">✅ 生成された報告文</div>
+        <textarea id="reportTextArea" readonly class="report-text" rows="10">${esc(generateReportText())}</textarea>
+        <button id="copyReportBtn" class="submit-btn" onclick="copyReportText()">📋 報告文をコピー</button>
+      </div>
+    </div>
+  `;
+}
+
+window.changeDate = changeDate;
+window.changeCheckpoint = changeCheckpoint;
+window.updateReportField = updateReportField;
+window.addAdjustment = addAdjustment;
+window.removeAdjustment = removeAdjustment;
+window.updateAdjustment = updateAdjustment;
+window.updateAdjustmentAmountDirect = updateAdjustmentAmountDirect;
+window.saveAvgWage = saveAvgWage;
+window.saveReport = saveReport;
+window.copyReportText = copyReportText;
+
+(async function boot() {
+  await loadForDate();
+})();
+</script>
+</body>
+</html>
