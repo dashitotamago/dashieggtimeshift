@@ -351,10 +351,8 @@ function removeAdjustment(i) { state.report.adjustments.splice(i, 1); state.repo
 function updateAdjustment(i, field, value) {
   const a = state.report.adjustments[i];
   a[field] = value;
-  if (field === "hours" || field === "wage") {
-    const h = Number(a.hours) || 0;
-    const w = Number(a.wage) || 0;
-    a.amount = Math.round(h * w);
+  if (field === "hours") {
+    a.amount = Math.round((Number(a.hours) || 0) * state.avgWage);
   }
   state.reportDirty = true;
   render();
@@ -435,12 +433,9 @@ function render() {
   let adjRows = "";
   state.report.adjustments.forEach((a, i) => {
     adjRows += `<div class="adj-row">
-      <input type="text" placeholder="内容(例:応援で+1h)" value="${esc(a.label)}" onchange="updateAdjustment(${i},'label',this.value)" />
-      <input type="number" placeholder="時間" value="${a.hours}" style="max-width:70px" onchange="updateAdjustment(${i},'hours',this.value)" />
-      <span style="font-size:12px;color:var(--muted)">h ×</span>
-      <input type="number" placeholder="時給" value="${a.wage}" style="max-width:80px" onchange="updateAdjustment(${i},'wage',this.value)" />
-      <span style="font-size:12px;color:var(--muted)">円=</span>
-      <input type="number" placeholder="金額" value="${a.amount}" style="max-width:90px;font-weight:700" onchange="updateAdjustmentAmountDirect(${i},this.value)" />
+      <input type="text" placeholder="内容(例:応援スタッフ)" value="${esc(a.label)}" onchange="updateAdjustment(${i},'label',this.value)" />
+      <input type="number" placeholder="時間" value="${a.hours}" style="max-width:80px" onchange="updateAdjustment(${i},'hours',this.value)" />
+      <span style="font-size:12px;color:var(--muted)">h（${a.amount >= 0 ? "+" : ""}${fmtYen(a.amount)}）</span>
       <button class="remove-btn" onclick="removeAdjustment(${i})">削除</button>
     </div>`;
   });
@@ -456,6 +451,43 @@ function render() {
         <div class="checkpoint-tabs">
           ${CHECKPOINTS.map((c) => `<button class="checkpoint-btn ${state.checkpoint === c.id ? "active" : ""}" onclick="changeCheckpoint('${c.id}')">${c.label}</button>`).join("")}
         </div>
+      </div>
+
+      <div class="card">
+        <div style="font-size:14px;font-weight:700;margin-bottom:8px">📝 報告内容の入力</div>
+        ${state.checkpoint !== "13" ? `<p class="note" style="margin-top:0">前の時間帯（${state.checkpoint === "15" ? "13時" : "15時"}）の内容（調整欄も含む）を引き継いでいます。時間が経過している分、調整欄の時間は必要に応じて書き換えてください。</p>` : ""}
+        <label class="field-label">売上（税抜・円）</label>
+        <input type="number" value="${state.report.sales}" onchange="updateReportField('sales', this.value)" />
+        <div class="field-row">
+          <div>
+            <label class="field-label">事前断り無し20分オーバー（件）</label>
+            <input type="number" value="${state.report.overCount}" onchange="updateReportField('overCount', this.value)" />
+          </div>
+          <div>
+            <label class="field-label">サービス提供（ドリンク・件）</label>
+            <input type="number" value="${state.report.serviceCount}" onchange="updateReportField('serviceCount', this.value)" />
+          </div>
+        </div>
+        <div class="field-row">
+          <div>
+            <label class="field-label">呼び込み声出し（80db以上・回）</label>
+            <input type="number" value="${state.report.callOutCount}" onchange="updateReportField('callOutCount', this.value)" />
+          </div>
+        </div>
+        <label class="field-label" style="margin-top:10px">欠品商品（あれば入力）</label>
+        <textarea rows="2" onchange="updateReportField('missingItems', this.value)">${esc(state.report.missingItems)}</textarea>
+
+        <div class="note" style="margin-top:14px;font-weight:700;color:var(--ink)">シフトと違う時間に入ったスタッフの調整（＋／－・時間のみ入力）</div>
+        ${adjRows}
+        <button class="add-btn" style="margin-top:8px" onclick="addAdjustment()">＋ 調整を追加</button>
+
+        <button class="save-btn" style="margin-top:16px" onclick="saveReport()">💾 この内容を保存</button>
+      </div>
+
+      <div class="card">
+        <div style="font-size:14px;font-weight:700;margin-bottom:4px">✅ 生成された報告文</div>
+        <textarea id="reportTextArea" readonly class="report-text" rows="10">${esc(generateReportText())}</textarea>
+        <button id="copyReportBtn" class="submit-btn" style="${state.reportDirty ? "background:var(--muted2);cursor:not-allowed" : ""}" onclick="copyReportText()">${state.reportDirty ? "⚠ 先に保存してください" : "📋 報告文をコピー"}</button>
       </div>
 
       <div class="card">
@@ -492,12 +524,7 @@ function render() {
           <div class="summary-item"><div class="label">人件費合計</div><div class="value">${fmtYen(labor)}</div></div>
           <div class="summary-item"><div class="label">労働時間</div><div class="value">${totalLaborHours().toFixed(1)}h</div></div>
         </div>
-        <p class="note">「${CHECKPOINTS.find((c) => c.id === state.checkpoint).label}」の時点までに経過したシフト時間 × 時給で自動計算しています。</p>
-
-        <div class="note" style="margin-top:12px;font-weight:700;color:var(--ink)">シフトと違う時間に入ったスタッフの調整（＋／－）</div>
-        ${adjRows}
-        <button class="add-btn" style="margin-top:8px" onclick="addAdjustment()">＋ 調整を追加</button>
-
+        <p class="note">「${CHECKPOINTS.find((c) => c.id === state.checkpoint).label}」の時点までに経過したシフト時間 × 平均時給で自動計算しています。調整はすぐ上の「報告内容の入力」欄で行えます。</p>
         <div class="field-row" style="margin-top:14px">
           <div>
             <label class="field-label">人件費計算用 平均時給（円）</label>
@@ -505,38 +532,6 @@ function render() {
           </div>
         </div>
         <p class="note">この報告での人件費はすべて、この平均時給で概算計算します（スタッフごとの実際の時給は使いません）。</p>
-      </div>
-
-      <div class="card">
-        <div style="font-size:14px;font-weight:700;margin-bottom:8px">📝 報告内容の入力</div>
-        ${state.checkpoint !== "13" ? `<p class="note" style="margin-top:0">前の時間帯（${state.checkpoint === "15" ? "13時" : "15時"}）の内容（調整欄も含む）を引き継いでいます。時間が経過している分、調整欄の時間は必要に応じて書き換えてください。</p>` : ""}
-        <label class="field-label">売上（税抜・円）</label>
-        <input type="number" value="${state.report.sales}" onchange="updateReportField('sales', this.value)" />
-        <div class="field-row">
-          <div>
-            <label class="field-label">事前断り無し20分オーバー（件）</label>
-            <input type="number" value="${state.report.overCount}" onchange="updateReportField('overCount', this.value)" />
-          </div>
-          <div>
-            <label class="field-label">サービス提供（ドリンク・件）</label>
-            <input type="number" value="${state.report.serviceCount}" onchange="updateReportField('serviceCount', this.value)" />
-          </div>
-        </div>
-        <div class="field-row">
-          <div>
-            <label class="field-label">呼び込み声出し（80db以上・回）</label>
-            <input type="number" value="${state.report.callOutCount}" onchange="updateReportField('callOutCount', this.value)" />
-          </div>
-        </div>
-        <label class="field-label" style="margin-top:10px">欠品商品（あれば入力）</label>
-        <textarea rows="2" onchange="updateReportField('missingItems', this.value)">${esc(state.report.missingItems)}</textarea>
-        <button class="save-btn" style="margin-top:12px" onclick="saveReport()">💾 この内容を保存</button>
-      </div>
-
-      <div class="card">
-        <div style="font-size:14px;font-weight:700;margin-bottom:4px">✅ 生成された報告文</div>
-        <textarea id="reportTextArea" readonly class="report-text" rows="10">${esc(generateReportText())}</textarea>
-        <button id="copyReportBtn" class="submit-btn" style="${state.reportDirty ? "background:var(--muted2);cursor:not-allowed" : ""}" onclick="copyReportText()">${state.reportDirty ? "⚠ 先に保存してください" : "📋 報告文をコピー"}</button>
       </div>
     </div>
   `;
