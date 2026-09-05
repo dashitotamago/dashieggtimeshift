@@ -975,8 +975,9 @@ function renderAdminTab() {
       <table>
         <thead><tr>
           <th>名前</th>
-          <th class="num">希望(合計)</th><th class="num">希望 前半</th><th class="num">希望 後半</th>
-          <th class="num">確定(合計)</th><th class="num">確定 前半</th><th class="num">確定 後半</th>
+          <th class="num">希望(合計)</th><th class="num">確定(合計)</th>
+          <th class="num">前半 希望</th><th class="num">前半 確定</th>
+          <th class="num">後半 希望</th><th class="num">後半 確定</th>
         </tr></thead>
         <tbody>
           ${state.staffDirectory.map((s) => {
@@ -1005,8 +1006,9 @@ function renderAdminTab() {
             const confirmedTotal = confirmedFirstHalf + confirmedSecondHalf;
             return `<tr>
               <td style="padding:4px 8px 4px 0">${esc(s.name)}</td>
-              <td class="num" style="font-weight:700">${requestedTotal}回</td><td class="num">${requestedFirstHalf}回</td><td class="num">${requestedSecondHalf}回</td>
-              <td class="num" style="font-weight:700">${confirmedTotal}回</td><td class="num">${confirmedFirstHalf}回</td><td class="num">${confirmedSecondHalf}回</td>
+              <td class="num" style="font-weight:700">${requestedTotal}回</td><td class="num" style="font-weight:700">${confirmedTotal}回</td>
+              <td class="num">${requestedFirstHalf}回</td><td class="num">${confirmedFirstHalf}回</td>
+              <td class="num">${requestedSecondHalf}回</td><td class="num">${confirmedSecondHalf}回</td>
             </tr>`;
           }).join("")}
         </tbody>
