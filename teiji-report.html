@@ -184,6 +184,7 @@ const state = {
   saturdaySlots: DEFAULT_SATURDAY_SLOTS,
   sundayHolidaySlots: DEFAULT_SUNDAY_HOLIDAY_SLOTS,
   holidays: [],
+  dateOverrides: {},
   slotsSnapshot: null,
   avgWage: 1200,
   budgetWeekday: 0,
@@ -201,6 +202,8 @@ function dayCategory(d) {
   return "weekday";
 }
 function slotsForDate(d) {
+  const override = state.dateOverrides[dateKey(d)];
+  if (override && override.length) return override;
   const cat = dayCategory(d);
   if (cat === "sundayHoliday") return state.sundayHolidaySlots;
   if (cat === "saturday") return state.saturdaySlots;
@@ -252,6 +255,7 @@ async function loadDayData() {
   ]);
   state.staffDirectory = normalizeStaffDirectory(list);
   state.holidays = (cfg && cfg.holidays) || [];
+  state.dateOverrides = (cfg && cfg.dateOverrides) || {};
   state.slotsSnapshot = (cfg && cfg.slotsSnapshot) || null;
   state.weekdaySlots = pickSlots("weekday", state.slotsSnapshot, slotsCfg);
   state.saturdaySlots = pickSlots("saturday", state.slotsSnapshot, slotsCfg);
