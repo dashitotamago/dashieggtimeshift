@@ -465,6 +465,7 @@ async function loadMyRecord() {
       apiGet(`confirmed:${mKey}`),
     ]);
     const holidays = (cfg && cfg.holidays) || [];
+    const dateOverridesM = (cfg && cfg.dateOverrides) || {};
     const snap = cfg && cfg.slotsSnapshot;
     const weekdaySlotsM = pickSlots("weekday", snap, slotsCfg);
     const saturdaySlotsM = pickSlots("saturday", snap, slotsCfg);
@@ -472,9 +473,30 @@ async function loadMyRecord() {
     const confirmedM = conf || {};
     const myWage = wageOf(state.staffName);
 
+    function slotsForDateM(d, dKey) {
+      const override = dateOverridesM[dKey];
+      if (override && override.length) return override;
+      const dow = d.getDay();
+      const isSunHol = dow === 0 || isPublicHoliday(d) || holidays.includes(dKey);
+      return isSunHol ? sundayHolidaySlotsM : (dow === 6 ? saturdaySlotsM : weekdaySlotsM);
+    }
+
     const dates = daysInMonth(now.getFullYear(), now.getMonth());
     const rows = [];
     let hoursTotal = 0, lateCount = 0;
+    let confirmedFirstHalf = 0, confirmedSecondHalf = 0;
+
+    for (const d of dates) {
+      const dKey = dateKey(d);
+      const dayConf = confirmedM[dKey] || {};
+      const slots = slotsForDateM(d, dKey);
+      const isConfirmedToday = slots.some((s) => dayConf[s.id] === state.staffName);
+      if (isConfirmedToday) {
+        if (d.getDate() <= 15) confirmedFirstHalf++;
+        else confirmedSecondHalf++;
+      }
+    }
+    const confirmedTotal = confirmedFirstHalf + confirmedSecondHalf;
 
     const punchValues = await apiListValues(`punch:${mKey}`);
     const recordsByDate = {};
@@ -495,9 +517,7 @@ async function loadMyRecord() {
       const hours = calcHoursForPunches(records);
       hoursTotal += hours;
 
-      const dow = d.getDay();
-      const isSunHol = dow === 0 || isPublicHoliday(d) || holidays.includes(dKey);
-      const slots = isSunHol ? sundayHolidaySlotsM : (dow === 6 ? saturdaySlotsM : weekdaySlotsM);
+      const slots = slotsForDateM(d, dKey);
       const dayConf = confirmedM[dKey] || {};
       let scheduledStartMin = null;
       for (const s of slots) {
@@ -531,7 +551,11 @@ async function loadMyRecord() {
       });
     }
 
-    state.myRecord = { rows, hoursTotal, wageTotal: hoursTotal * myWage, lateCount, monthLabel: `${now.getFullYear()}年${now.getMonth() + 1}月` };
+    state.myRecord = {
+      rows, hoursTotal, wageTotal: hoursTotal * myWage, lateCount,
+      confirmedTotal, confirmedFirstHalf, confirmedSecondHalf,
+      monthLabel: `${now.getFullYear()}年${now.getMonth() + 1}月`,
+    };
   } catch (err) {
     console.error("loadMyRecord failed", err);
     state.myRecordError = true;
@@ -949,17 +973,24 @@ function renderAdminTab() {
     <div style="font-size:14px;font-weight:500;margin-bottom:8px">📊 今月の希望・確定回数（${state.cursor.getMonth() + 1}月）</div>
     ${state.staffDirectory.length === 0 ? `<p style="font-size:12px;color:var(--muted2);margin:0">スタッフが登録されていません。</p>` : `
       <table>
-        <thead><tr><th>名前</th><th class="num">希望回数</th><th class="num">確定回数</th></tr></thead>
+        <thead><tr><th>名前</th><th class="num">希望回数</th><th class="num">確定回数（合計）</th><th class="num">前半(1〜15日)</th><th class="num">後半(16〜31日)</th></tr></thead>
         <tbody>
           ${state.staffDirectory.map((s) => {
             const sub = state.allSubmissions[s.name] || {};
             const requestedCount = Object.values(sub).reduce((sum, e) => sum + ((e && e.slots) ? e.slots.length : 0), 0);
-            let confirmedCount = 0;
+            let confirmedFirstHalf = 0, confirmedSecondHalf = 0;
             for (const dKey in state.confirmed) {
               const dayConf = state.confirmed[dKey];
-              for (const slotId in dayConf) { if (dayConf[slotId] === s.name) confirmedCount++; }
+              const dayNum = Number(dKey.split("-")[2]);
+              for (const slotId in dayConf) {
+                if (dayConf[slotId] === s.name) {
+                  if (dayNum <= 15) confirmedFirstHalf++;
+                  else confirmedSecondHalf++;
+                }
+              }
             }
-            return `<tr><td style="padding:4px 8px 4px 0">${esc(s.name)}</td><td class="num">${requestedCount}回</td><td class="num" style="font-weight:700">${confirmedCount}回</td></tr>`;
+            const confirmedTotal = confirmedFirstHalf + confirmedSecondHalf;
+            return `<tr><td style="padding:4px 8px 4px 0">${esc(s.name)}</td><td class="num">${requestedCount}回</td><td class="num" style="font-weight:700">${confirmedTotal}回</td><td class="num">${confirmedFirstHalf}回</td><td class="num">${confirmedSecondHalf}回</td></tr>`;
           }).join("")}
         </tbody>
       </table>
