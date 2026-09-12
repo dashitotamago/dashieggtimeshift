@@ -399,7 +399,7 @@ function generateReportText() {
     `事前断り無し20分オーバー　${state.report.overCount || 0}件`,
     `サービス提供　${state.report.serviceCount || 0}件`,
     `（ドリンク）`,
-    `呼び込み声出し(80db以上)　${state.report.callOutCount || 0}回`,
+    `呼び込み声出し(77db以上)　${state.report.callOutCount || 0}回`,
     `欠品商品`,
   ];
   if (state.report.missingItems && state.report.missingItems.trim()) lines.push(state.report.missingItems.trim());
@@ -474,7 +474,7 @@ function render() {
         </div>
         <div class="field-row">
           <div>
-            <label class="field-label">呼び込み声出し（80db以上・回）</label>
+            <label class="field-label">呼び込み声出し（77db以上・回）</label>
             <input type="number" value="${state.report.callOutCount}" onchange="updateReportField('callOutCount', this.value)" />
           </div>
         </div>
