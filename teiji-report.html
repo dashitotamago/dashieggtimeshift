@@ -177,7 +177,7 @@ const state = {
   loading: true,
   saving: false,
   targetDate: dateKey(new Date()),
-  checkpoint: "15",
+  checkpoint: "13",
   staffDirectory: [],
   confirmed: {},
   weekdaySlots: DEFAULT_WEEKDAY_SLOTS,
@@ -265,7 +265,18 @@ async function loadDayData() {
   state.budgetWeekday = (budgetSettings && budgetSettings.weekday) || 0;
   state.budgetWeekendHoliday = (budgetSettings && budgetSettings.weekendHoliday) || 0;
   state.budgetModeOverride = "auto";
+  await determineDefaultCheckpoint();
   await loadCheckpointReport();
+}
+
+async function determineDefaultCheckpoint() {
+  const d = new Date(state.targetDate + "T00:00:00");
+  const isWeekendHoliday = d.getDay() === 0 || d.getDay() === 6 || isPublicHoliday(d);
+  const saved13 = await apiGet(`teijiReport:${state.targetDate}:13`);
+  if (!saved13) { state.checkpoint = "13"; return; }
+  if (!isWeekendHoliday) { state.checkpoint = "close"; return; }
+  const saved15 = await apiGet(`teijiReport:${state.targetDate}:15`);
+  state.checkpoint = saved15 ? "close" : "15";
 }
 
 function previousCheckpointId(cp) {
@@ -399,7 +410,7 @@ function generateReportText() {
     `事前断り無し20分オーバー　${state.report.overCount || 0}件`,
     `サービス提供　${state.report.serviceCount || 0}件`,
     `（ドリンク）`,
-    `呼び込み声出し(77db以上)　${state.report.callOutCount || 0}回`,
+    `累計呼び込み回数(77db以上)　${state.report.callOutCount || 0}回`,
     `欠品商品`,
   ];
   if (state.report.missingItems && state.report.missingItems.trim()) lines.push(state.report.missingItems.trim());
@@ -474,7 +485,7 @@ function render() {
         </div>
         <div class="field-row">
           <div>
-            <label class="field-label">呼び込み声出し（77db以上・回）</label>
+            <label class="field-label">累計呼び込み回数（77db以上・回）</label>
             <input type="number" value="${state.report.callOutCount}" onchange="updateReportField('callOutCount', this.value)" />
           </div>
         </div>
