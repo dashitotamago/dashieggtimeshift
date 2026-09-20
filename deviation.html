@@ -59,26 +59,29 @@ const CONFIG = {
 };
 const WEEKDAY_JP = ["日", "月", "火", "水", "木", "金", "土"];
 const DEFAULT_WEEKDAY_SLOTS = [{ id: "w1", label: "ワンオペ", start: "09:00", end: "18:00" }];
-const DEFAULT_SATURDAY_SLOTS = [
+const DEFAULT_HOLIDAY_SLOTS = [
   { id: "s1", label: "10:00〜15:00", start: "10:00", end: "15:00" },
   { id: "s2", label: "11:30〜16:30", start: "11:30", end: "16:30" },
 ];
-const DEFAULT_SUNDAY_HOLIDAY_SLOTS = [
+const DEFAULT_HOLIDAY_END_SLOTS = [
   { id: "h1", label: "10:00〜15:00", start: "10:00", end: "15:00" },
   { id: "h2", label: "11:30〜16:30", start: "11:30", end: "16:30" },
 ];
 function pickSlots(category, snapshot, liveCfg) {
+  const legacyKey = category === "holiday" ? "saturday" : category === "holidayEnd" ? "sundayHoliday" : null;
   if (snapshot) {
     if (snapshot[category] && snapshot[category].length) return snapshot[category];
+    if (legacyKey && snapshot[legacyKey] && snapshot[legacyKey].length) return snapshot[legacyKey];
     if (category !== "weekday" && snapshot.weekend && snapshot.weekend.length) return snapshot.weekend;
   }
   if (liveCfg) {
     if (liveCfg[category] && liveCfg[category].length) return liveCfg[category];
+    if (legacyKey && liveCfg[legacyKey] && liveCfg[legacyKey].length) return liveCfg[legacyKey];
     if (category !== "weekday" && liveCfg.weekend && liveCfg.weekend.length) return liveCfg.weekend;
   }
   if (category === "weekday") return DEFAULT_WEEKDAY_SLOTS;
-  if (category === "saturday") return DEFAULT_SATURDAY_SLOTS;
-  return DEFAULT_SUNDAY_HOLIDAY_SLOTS;
+  if (category === "holiday") return DEFAULT_HOLIDAY_SLOTS;
+  return DEFAULT_HOLIDAY_END_SLOTS;
 }
 
 function esc(s) { return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
@@ -182,8 +185,8 @@ const state = {
   holidays: [],
   dateOverrides: {},
   weekdaySlots: DEFAULT_WEEKDAY_SLOTS,
-  saturdaySlots: DEFAULT_SATURDAY_SLOTS,
-  sundayHolidaySlots: DEFAULT_SUNDAY_HOLIDAY_SLOTS,
+  holidaySlots: DEFAULT_HOLIDAY_SLOTS,
+  holidayEndSlots: DEFAULT_HOLIDAY_END_SLOTS,
   confirmed: {},
   punchByDate: {}, // `${dateStr}|${name}` -> records[]
   allSubmissions: {}, // name -> submission object
@@ -250,19 +253,22 @@ function getJapanHolidays(year) {
 }
 function isPublicHoliday(d) { return !!getJapanHolidays(d.getFullYear())[dateKey(d)]; }
 
-function isWeekendType(d) { const dow = d.getDay(); return dow === 0 || dow === 6 || isPublicHoliday(d) || state.holidays.includes(dateKey(d)); }
+function isAutoNonWorking(d) { const dow = d.getDay(); return dow === 0 || dow === 6 || isPublicHoliday(d); }
+function isNonWorkingDay(d) { return isAutoNonWorking(d) || state.holidays.includes(dateKey(d)); }
+function isWeekendType(d) { return isNonWorkingDay(d); }
 function dayCategory(d) {
-  const dow = d.getDay();
-  if (dow === 0 || isPublicHoliday(d) || state.holidays.includes(dateKey(d))) return "sundayHoliday";
-  if (dow === 6) return "saturday";
-  return "weekday";
+  if (!isNonWorkingDay(d)) return "weekday";
+  const next = new Date(d);
+  next.setDate(next.getDate() + 1);
+  const nextNonWorking = isAutoNonWorking(next) || state.holidays.includes(dateKey(next));
+  return nextNonWorking ? "holiday" : "holidayEnd";
 }
 function slotsForDate(d) {
   const override = state.dateOverrides[dateKey(d)];
   if (override && override.length) return override;
   const cat = dayCategory(d);
-  if (cat === "sundayHoliday") return state.sundayHolidaySlots;
-  if (cat === "saturday") return state.saturdaySlots;
+  if (cat === "holiday") return state.holidaySlots;
+  if (cat === "holidayEnd") return state.holidayEndSlots;
   return state.weekdaySlots;
 }
 function wageOf(name) { const s = state.staffDirectory.find((x) => x.name === name); return s ? Number(s.wage) || 0 : 0; }
@@ -335,8 +341,8 @@ async function loadMonth() {
   state.dateOverrides = (cfg && cfg.dateOverrides) || {};
   const snap = cfg && cfg.slotsSnapshot;
   state.weekdaySlots = pickSlots("weekday", snap, slotsCfg);
-  state.saturdaySlots = pickSlots("saturday", snap, slotsCfg);
-  state.sundayHolidaySlots = pickSlots("sundayHoliday", snap, slotsCfg);
+  state.holidaySlots = pickSlots("holiday", snap, slotsCfg);
+  state.holidayEndSlots = pickSlots("holidayEnd", snap, slotsCfg);
   state.confirmed = conf || {};
 
   const punchValues = await apiListValues(`punch:${mKey}`);
@@ -394,13 +400,21 @@ async function loadLateSummary() {
     monthCache[mKey] = { holidays: (cfg && cfg.holidays) || [], dateOverrides: (cfg && cfg.dateOverrides) || {}, slotsSnapshot: (cfg && cfg.slotsSnapshot) || null, confirmed: conf || {} };
   }));
 
+  function isNonWorkingP(dateObj, mKeyForDate) {
+    const dow = dateObj.getDay();
+    if (dow === 0 || dow === 6 || isPublicHoliday(dateObj)) return true;
+    const mc = monthCache[mKeyForDate];
+    return mc ? mc.holidays.includes(dateKey(dateObj)) : false;
+  }
   function slotsFor(p) {
-    const { holidays, dateOverrides, slotsSnapshot } = monthCache[p.mKey];
+    const { dateOverrides, slotsSnapshot } = monthCache[p.mKey];
     const override = dateOverrides[p.dStr];
     if (override && override.length) return override;
     const d = new Date(p.dStr + "T00:00:00");
-    const dow = d.getDay();
-    const cat = (dow === 0 || isPublicHoliday(d) || holidays.includes(p.dStr)) ? "sundayHoliday" : (dow === 6 ? "saturday" : "weekday");
+    if (!isNonWorkingP(d, p.mKey)) return pickSlots("weekday", slotsSnapshot, slotsCfg);
+    const next = new Date(d); next.setDate(next.getDate() + 1);
+    const nextMKey = monthKey(next);
+    const cat = isNonWorkingP(next, nextMKey) ? "holiday" : "holidayEnd";
     return pickSlots(cat, slotsSnapshot, slotsCfg);
   }
 
@@ -562,7 +576,9 @@ function lateRate(lateCount, attCount) {
 function dateLabelHtml(d, weekend) {
   const dow = d.getDay();
   const color = dow === 0 ? "var(--rose)" : dow === 6 ? "var(--green)" : "var(--ink)";
-  return `<span style="color:${color};font-weight:700">${d.getDate()}日(${WEEKDAY_JP[dow]})</span>${weekend ? ` <span class="pill pill-blue" style="font-size:10px">土日祝</span>` : ""}`;
+  const cat = dayCategory(d);
+  const badgeText = cat === "holidayEnd" ? "連休終了日" : cat === "holiday" ? "休日" : "";
+  return `<span style="color:${color};font-weight:700">${d.getDate()}日(${WEEKDAY_JP[dow]})</span>${badgeText ? ` <span class="pill pill-blue" style="font-size:10px">${badgeText}</span>` : ""}`;
 }
 function ratePill(rate, hasSchedule, hasPunch) {
   if (!hasSchedule) return `<span class="pill pill-blue">予定なし</span>`;
