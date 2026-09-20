@@ -50,11 +50,11 @@ const CONFIG = {
   ADMIN_PASSWORD: "0310",
 };
 const DEFAULT_WEEKDAY_SLOTS = [{ id: "w1", label: "ワンオペ", start: "09:00", end: "18:00" }];
-const DEFAULT_SATURDAY_SLOTS = [
+const DEFAULT_HOLIDAY_SLOTS = [
   { id: "s1", label: "10:00〜15:00", start: "10:00", end: "15:00" },
   { id: "s2", label: "11:30〜16:30", start: "11:30", end: "16:30" },
 ];
-const DEFAULT_SUNDAY_HOLIDAY_SLOTS = [
+const DEFAULT_HOLIDAY_END_SLOTS = [
   { id: "h1", label: "10:00〜15:00", start: "10:00", end: "15:00" },
   { id: "h2", label: "11:30〜16:30", start: "11:30", end: "16:30" },
 ];
@@ -125,17 +125,20 @@ function getJapanHolidays(year) {
 function isPublicHoliday(d) { return !!getJapanHolidays(d.getFullYear())[dateKey(d)]; }
 
 function pickSlots(category, snapshot, liveCfg) {
+  const legacyKey = category === "holiday" ? "saturday" : category === "holidayEnd" ? "sundayHoliday" : null;
   if (snapshot) {
     if (snapshot[category] && snapshot[category].length) return snapshot[category];
+    if (legacyKey && snapshot[legacyKey] && snapshot[legacyKey].length) return snapshot[legacyKey];
     if (category !== "weekday" && snapshot.weekend && snapshot.weekend.length) return snapshot.weekend;
   }
   if (liveCfg) {
     if (liveCfg[category] && liveCfg[category].length) return liveCfg[category];
+    if (legacyKey && liveCfg[legacyKey] && liveCfg[legacyKey].length) return liveCfg[legacyKey];
     if (category !== "weekday" && liveCfg.weekend && liveCfg.weekend.length) return liveCfg.weekend;
   }
   if (category === "weekday") return DEFAULT_WEEKDAY_SLOTS;
-  if (category === "saturday") return DEFAULT_SATURDAY_SLOTS;
-  return DEFAULT_SUNDAY_HOLIDAY_SLOTS;
+  if (category === "holiday") return DEFAULT_HOLIDAY_SLOTS;
+  return DEFAULT_HOLIDAY_END_SLOTS;
 }
 function wageForMonth(s, mKey) {
   if (!s.wageHistory || !s.wageHistory.length) return s.wage;
@@ -181,8 +184,8 @@ const state = {
   staffDirectory: [],
   confirmed: {},
   weekdaySlots: DEFAULT_WEEKDAY_SLOTS,
-  saturdaySlots: DEFAULT_SATURDAY_SLOTS,
-  sundayHolidaySlots: DEFAULT_SUNDAY_HOLIDAY_SLOTS,
+  holidaySlots: DEFAULT_HOLIDAY_SLOTS,
+  holidayEndSlots: DEFAULT_HOLIDAY_END_SLOTS,
   holidays: [],
   dateOverrides: {},
   slotsSnapshot: null,
@@ -194,19 +197,22 @@ const state = {
   report: { sales: "", overCount: "0", serviceCount: "0", missingItems: "", adjustments: [] },
 };
 
-function isWeekendType(d) { const dow = d.getDay(); return dow === 0 || dow === 6 || isPublicHoliday(d) || state.holidays.includes(dateKey(d)); }
+function isAutoNonWorking(d) { const dow = d.getDay(); return dow === 0 || dow === 6 || isPublicHoliday(d); }
+function isNonWorkingDay(d) { return isAutoNonWorking(d) || state.holidays.includes(dateKey(d)); }
+function isWeekendType(d) { return isNonWorkingDay(d); }
 function dayCategory(d) {
-  const dow = d.getDay();
-  if (dow === 0 || isPublicHoliday(d) || state.holidays.includes(dateKey(d))) return "sundayHoliday";
-  if (dow === 6) return "saturday";
-  return "weekday";
+  if (!isNonWorkingDay(d)) return "weekday";
+  const next = new Date(d);
+  next.setDate(next.getDate() + 1);
+  const nextNonWorking = isAutoNonWorking(next) || state.holidays.includes(dateKey(next));
+  return nextNonWorking ? "holiday" : "holidayEnd";
 }
 function slotsForDate(d) {
   const override = state.dateOverrides[dateKey(d)];
   if (override && override.length) return override;
   const cat = dayCategory(d);
-  if (cat === "sundayHoliday") return state.sundayHolidaySlots;
-  if (cat === "saturday") return state.saturdaySlots;
+  if (cat === "holiday") return state.holidaySlots;
+  if (cat === "holidayEnd") return state.holidayEndSlots;
   return state.weekdaySlots;
 }
 function wageOf(name) {
@@ -258,8 +264,8 @@ async function loadDayData() {
   state.dateOverrides = (cfg && cfg.dateOverrides) || {};
   state.slotsSnapshot = (cfg && cfg.slotsSnapshot) || null;
   state.weekdaySlots = pickSlots("weekday", state.slotsSnapshot, slotsCfg);
-  state.saturdaySlots = pickSlots("saturday", state.slotsSnapshot, slotsCfg);
-  state.sundayHolidaySlots = pickSlots("sundayHoliday", state.slotsSnapshot, slotsCfg);
+  state.holidaySlots = pickSlots("holiday", state.slotsSnapshot, slotsCfg);
+  state.holidayEndSlots = pickSlots("holidayEnd", state.slotsSnapshot, slotsCfg);
   state.confirmed = (conf && conf[state.targetDate]) || {};
   state.avgWage = avgWage != null ? avgWage : 1200;
   state.budgetWeekday = (budgetSettings && budgetSettings.weekday) || 0;
@@ -285,13 +291,13 @@ function previousCheckpointId(cp) {
   return null;
 }
 function blankReport() {
-  return { sales: "", overCount: "0", serviceCount: "0", callOutCount: "0", missingItems: "", adjustments: [] };
+  return { sales: "", overCount: "0", serviceCount: "0", callOutCount: "0", missingItems: "", staffHours: [] };
 }
 
 async function loadCheckpointReport() {
   const savedReport = await apiGet(`teijiReport:${state.targetDate}:${state.checkpoint}`);
   if (savedReport) {
-    state.report = { ...blankReport(), ...savedReport, adjustments: savedReport.adjustments || [] };
+    state.report = { ...blankReport(), ...savedReport, staffHours: savedReport.staffHours || [] };
     state.reportDirty = false;
   } else {
     const prevId = previousCheckpointId(state.checkpoint);
@@ -303,10 +309,11 @@ async function loadCheckpointReport() {
         serviceCount: prevReport.serviceCount || "0",
         callOutCount: prevReport.callOutCount || "0",
         missingItems: prevReport.missingItems || "",
-        adjustments: (prevReport.adjustments || []).map((a) => ({ ...a })),
+        staffHours: (prevReport.staffHours || []).map((s) => ({ ...s })),
       };
     } else {
-      state.report = blankReport();
+      // その日最初の報告: 確定シフトから自動で一覧を作る(手動で調整可能)
+      state.report = { ...blankReport(), staffHours: staffHoursBreakdown().map((s) => ({ ...s })) };
     }
     state.reportDirty = true;
   }
@@ -347,33 +354,45 @@ function calculatedLaborStats() {
 }
 function calculatedLaborCost() { return calculatedLaborStats().cost; }
 function calculatedLaborHours() { return calculatedLaborStats().hours; }
-function adjustmentTotal() {
-  return state.report.adjustments.reduce((sum, a) => sum + (Number(a.amount) || 0), 0);
+function staffHoursBreakdown() {
+  const d = new Date(state.targetDate + "T00:00:00");
+  const slots = slotsForDate(d);
+  const cpMin = checkpointMinutes();
+  const byName = {};
+  for (const s of slots) {
+    const name = state.confirmed[s.id];
+    if (!name) continue;
+    const startMin = hmToMinutes(s.start);
+    const endMin = hmToMinutes(s.end);
+    const elapsedEnd = Math.min(cpMin, endMin);
+    const minutes = Math.max(0, elapsedEnd - startMin);
+    const h = minutes / 60;
+    if (h <= 0) continue;
+    byName[name] = (byName[name] || 0) + h;
+  }
+  return Object.entries(byName).map(([name, hours]) => ({ name, hours })).sort((a, b) => b.hours - a.hours);
 }
-function adjustmentHoursTotal() {
-  return state.report.adjustments.reduce((sum, a) => sum + (Number(a.hours) || 0), 0);
+function totalLaborHours() {
+  return state.report.staffHours.reduce((sum, s) => sum + (Number(s.hours) || 0), 0);
 }
-function totalLaborCost() { return calculatedLaborCost() + adjustmentTotal(); }
-function totalLaborHours() { return calculatedLaborHours() + adjustmentHoursTotal(); }
+function totalLaborCost() {
+  return totalLaborHours() * state.avgWage;
+}
 
 function updateReportField(field, value) { state.report[field] = value; state.reportDirty = true; render(); }
-function addAdjustment() {
-  state.report.adjustments.push({ label: "", hours: "", wage: state.avgWage, amount: 0 });
+function addStaffHourRow() {
+  state.report.staffHours.push({ name: "", hours: "" });
   state.reportDirty = true;
   render();
 }
-function removeAdjustment(i) { state.report.adjustments.splice(i, 1); state.reportDirty = true; render(); }
-function updateAdjustment(i, field, value) {
-  const a = state.report.adjustments[i];
-  a[field] = value;
-  if (field === "hours") {
-    a.amount = Math.round((Number(a.hours) || 0) * state.avgWage);
-  }
+function removeStaffHourRow(i) { state.report.staffHours.splice(i, 1); state.reportDirty = true; render(); }
+function updateStaffHourRow(i, field, value) {
+  state.report.staffHours[i][field] = value;
   state.reportDirty = true;
   render();
 }
-function updateAdjustmentAmountDirect(i, value) {
-  state.report.adjustments[i].amount = Number(value) || 0;
+function refillStaffHoursFromShift() {
+  state.report.staffHours = staffHoursBreakdown().map((s) => ({ ...s }));
   state.reportDirty = true;
   render();
 }
@@ -399,6 +418,7 @@ function generateReportText() {
   const rate = sales > 0 ? (labor / sales) * 100 : 0;
   const budget = effectiveBudget();
   const achieveRate = budget > 0 ? (sales / budget) * 100 : 0;
+  const staffList = staffHoursBreakdown();
   const lines = [
     title,
     `売上（税抜）：${fmtNum(sales)}`,
@@ -406,13 +426,24 @@ function generateReportText() {
     `予算達成率：${achieveRate.toFixed(1)}%`,
     `人件費：${fmtNum(labor)}`,
     `労働時間：${hours.toFixed(1)}時間`,
+  ];
+  if (staffList.length) {
+    lines.push(`【出勤者】`);
+    for (const s of staffList) lines.push(`${s.name}：${s.hours.toFixed(1)}時間`);
+  }
+  for (const a of state.report.adjustments) {
+    const h = Number(a.hours) || 0;
+    if (!h) continue;
+    lines.push(`${a.label ? a.label : "調整"}：${h >= 0 ? "+" : ""}${h.toFixed(1)}時間`);
+  }
+  lines.push(
     `人件費率：${rate.toFixed(1)}%`,
     `事前断り無し20分オーバー　${state.report.overCount || 0}件`,
     `サービス提供　${state.report.serviceCount || 0}件`,
     `（ドリンク）`,
     `累計呼び込み回数(77db以上)　${state.report.callOutCount || 0}回`,
-    `欠品商品`,
-  ];
+    `欠品商品`
+  );
   if (state.report.missingItems && state.report.missingItems.trim()) lines.push(state.report.missingItems.trim());
   return lines.join("\n");
 }
@@ -442,16 +473,16 @@ function render() {
   }
 
   const labor = totalLaborCost();
-  const calcOnly = calculatedLaborCost();
-  const adjTotal = adjustmentTotal();
+  const hoursTotal = totalLaborHours();
 
-  let adjRows = "";
-  state.report.adjustments.forEach((a, i) => {
-    adjRows += `<div class="adj-row">
-      <input type="text" placeholder="内容(例:応援スタッフ)" value="${esc(a.label)}" onchange="updateAdjustment(${i},'label',this.value)" />
-      <input type="number" placeholder="時間" value="${a.hours}" style="max-width:80px" onchange="updateAdjustment(${i},'hours',this.value)" />
-      <span style="font-size:12px;color:var(--muted)">h（${a.amount >= 0 ? "+" : ""}${fmtYen(a.amount)}）</span>
-      <button class="remove-btn" onclick="removeAdjustment(${i})">削除</button>
+  let staffRows = "";
+  state.report.staffHours.forEach((s, i) => {
+    const cost = (Number(s.hours) || 0) * state.avgWage;
+    staffRows += `<div class="adj-row">
+      <input type="text" placeholder="名前" value="${esc(s.name)}" onchange="updateStaffHourRow(${i},'name',this.value)" />
+      <input type="number" placeholder="時間" value="${s.hours}" style="max-width:80px" onchange="updateStaffHourRow(${i},'hours',this.value)" />
+      <span style="font-size:12px;color:var(--muted)">h（${fmtYen(cost)}）</span>
+      <button class="remove-btn" onclick="removeStaffHourRow(${i})">削除</button>
     </div>`;
   });
 
@@ -470,8 +501,17 @@ function render() {
 
       <div class="card">
         <div style="font-size:14px;font-weight:700;margin-bottom:8px">📝 報告内容の入力</div>
-        ${state.checkpoint !== "13" ? `<p class="note" style="margin-top:0">前の時間帯（${state.checkpoint === "15" ? "13時" : "15時"}）の内容（調整欄も含む）を引き継いでいます。時間が経過している分、調整欄の時間は必要に応じて書き換えてください。</p>` : ""}
-        <label class="field-label">売上（税抜・円）</label>
+        ${state.checkpoint !== "13" ? `<p class="note" style="margin-top:0">前の時間帯（${state.checkpoint === "15" ? "13時" : "15時"}）の内容を引き継いでいます。必要に応じて書き換えてください。</p>` : ""}
+
+        <div class="note" style="font-weight:700;color:var(--ink)">誰が何時間入っているか（手動で追加・削除・変更できます）</div>
+        ${staffRows}
+        <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">
+          <button class="add-btn" onclick="addStaffHourRow()">＋ スタッフを追加</button>
+          <button class="add-btn" style="background:var(--blue)" onclick="refillStaffHoursFromShift()">🔄 シフトから取得し直す</button>
+        </div>
+        <p class="note">労働時間・人件費は、この一覧の合計（時間 × 平均時給）から計算されます。</p>
+
+        <label class="field-label" style="margin-top:14px">売上（税抜・円）</label>
         <input type="number" value="${state.report.sales}" onchange="updateReportField('sales', this.value)" />
         <div class="field-row">
           <div>
@@ -491,10 +531,6 @@ function render() {
         </div>
         <label class="field-label" style="margin-top:10px">欠品商品（あれば入力）</label>
         <textarea rows="2" onchange="updateReportField('missingItems', this.value)">${esc(state.report.missingItems)}</textarea>
-
-        <div class="note" style="margin-top:14px;font-weight:700;color:var(--ink)">シフトと違う時間に入ったスタッフの調整（＋／－・時間のみ入力）</div>
-        ${adjRows}
-        <button class="add-btn" style="margin-top:8px" onclick="addAdjustment()">＋ 調整を追加</button>
 
         <button class="save-btn" style="margin-top:16px" onclick="saveReport()">💾 この内容を保存</button>
       </div>
@@ -532,14 +568,12 @@ function render() {
       </div>
 
       <div class="card">
-        <div style="font-size:14px;font-weight:700;margin-bottom:4px">💰 人件費（確定シフトから自動計算）</div>
+        <div style="font-size:14px;font-weight:700;margin-bottom:4px">💰 人件費</div>
         <div class="summary-row">
-          <div class="summary-item"><div class="label">シフトからの計算分</div><div class="value">${fmtYen(calcOnly)}</div></div>
-          <div class="summary-item"><div class="label">調整分（±）</div><div class="value">${adjTotal >= 0 ? "+" : ""}${fmtYen(adjTotal)}</div></div>
           <div class="summary-item"><div class="label">人件費合計</div><div class="value">${fmtYen(labor)}</div></div>
-          <div class="summary-item"><div class="label">労働時間</div><div class="value">${totalLaborHours().toFixed(1)}h</div></div>
+          <div class="summary-item"><div class="label">労働時間合計</div><div class="value">${hoursTotal.toFixed(1)}h</div></div>
         </div>
-        <p class="note">「${CHECKPOINTS.find((c) => c.id === state.checkpoint).label}」の時点までに経過したシフト時間 × 平均時給で自動計算しています。調整はすぐ上の「報告内容の入力」欄で行えます。</p>
+        <p class="note">上の「報告内容の入力」欄にある「誰が何時間入っているか」一覧の合計（時間 × 平均時給）です。</p>
         <div class="field-row" style="margin-top:14px">
           <div>
             <label class="field-label">人件費計算用 平均時給（円）</label>
