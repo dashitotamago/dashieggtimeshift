@@ -194,7 +194,7 @@ const state = {
   budgetWeekendHoliday: 0,
   budgetModeOverride: "auto", // "auto" | "weekday" | "weekendHoliday"
   reportDirty: true,
-  report: { sales: "", overCount: "0", serviceCount: "0", missingItems: "", adjustments: [] },
+  report: { sales: "", overCount: "0", serviceCount: "0", callOutCount: "0", missingItems: "", staffHours: [] },
 };
 
 function isAutoNonWorking(d) { const dow = d.getDay(); return dow === 0 || dow === 6 || isPublicHoliday(d); }
@@ -418,7 +418,7 @@ function generateReportText() {
   const rate = sales > 0 ? (labor / sales) * 100 : 0;
   const budget = effectiveBudget();
   const achieveRate = budget > 0 ? (sales / budget) * 100 : 0;
-  const staffList = staffHoursBreakdown();
+  const staffList = state.report.staffHours.filter((s) => s.name && Number(s.hours));
   const lines = [
     title,
     `売上（税抜）：${fmtNum(sales)}`,
@@ -429,12 +429,7 @@ function generateReportText() {
   ];
   if (staffList.length) {
     lines.push(`【出勤者】`);
-    for (const s of staffList) lines.push(`${s.name}：${s.hours.toFixed(1)}時間`);
-  }
-  for (const a of state.report.adjustments) {
-    const h = Number(a.hours) || 0;
-    if (!h) continue;
-    lines.push(`${a.label ? a.label : "調整"}：${h >= 0 ? "+" : ""}${h.toFixed(1)}時間`);
+    for (const s of staffList) lines.push(`${s.name}：${Number(s.hours).toFixed(1)}時間`);
   }
   lines.push(
     `人件費率：${rate.toFixed(1)}%`,
@@ -589,10 +584,10 @@ function render() {
 window.changeDate = changeDate;
 window.changeCheckpoint = changeCheckpoint;
 window.updateReportField = updateReportField;
-window.addAdjustment = addAdjustment;
-window.removeAdjustment = removeAdjustment;
-window.updateAdjustment = updateAdjustment;
-window.updateAdjustmentAmountDirect = updateAdjustmentAmountDirect;
+window.addStaffHourRow = addStaffHourRow;
+window.removeStaffHourRow = removeStaffHourRow;
+window.updateStaffHourRow = updateStaffHourRow;
+window.refillStaffHoursFromShift = refillStaffHoursFromShift;
 window.saveAvgWage = saveAvgWage;
 window.saveReport = saveReport;
 window.copyReportText = copyReportText;
