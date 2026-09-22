@@ -69,6 +69,12 @@ async function apiListValues(prefix) {
     return out;
   } catch (e) { console.error("apiListValues failed", prefix, e); return {}; }
 }
+async function apiSet(key, value) {
+  try {
+    await fetch(CONFIG.API_URL, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify({ action: "set", key, value: JSON.stringify(value) }) });
+    return true;
+  } catch (e) { console.error("apiSet failed", key, e); return false; }
+}
 async function apiAction(payload) {
   try {
     const res = await fetch(CONFIG.API_URL, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify(payload) });
@@ -88,11 +94,21 @@ function wageForMonth(s, mKey) {
   const applicable = s.wageHistory.filter((h) => h.from <= mKey).sort((a, b) => a.from.localeCompare(b.from));
   return applicable.length ? applicable[applicable.length - 1].wage : s.wage;
 }
+function effectiveWageForMonth(s, mKey) {
+  // この給与集計ページだけの「その月だけの時給」上書き。従業員管理側の時給履歴とは連動しない。
+  if (state.wageOverrides && Object.prototype.hasOwnProperty.call(state.wageOverrides, s.name)) {
+    const v = Number(state.wageOverrides[s.name]);
+    if (!isNaN(v)) return v;
+  }
+  return wageForMonth(s, mKey);
+}
 
 const state = {
   cursor: (() => { const n = new Date(); return new Date(n.getFullYear(), n.getMonth(), 1); })(),
   authed: sessionStorage.getItem("payrollAuthed") === "1",
   loading: true,
+  wageOverrides: {},
+  bonuses: {},
   staffDirectory: [],
   rows: [],
   dailyByDate: {}, // dateStr -> { name -> hours }
@@ -120,8 +136,15 @@ function calcHoursForPunches(records) {
 async function loadPayroll() {
   state.loading = true; render();
   const mKey = monthKey(state.cursor);
-  const [list, punchValues] = await Promise.all([apiGet("staffList"), apiListValues(`punch:${mKey}`)]);
+  const [list, punchValues, overrides, bonuses] = await Promise.all([
+    apiGet("staffList"),
+    apiListValues(`punch:${mKey}`),
+    apiGet(`payrollWageOverride:${mKey}`),
+    apiGet(`payrollBonus:${mKey}`),
+  ]);
   state.staffDirectory = normalizeStaffDirectory(list);
+  state.wageOverrides = overrides || {};
+  state.bonuses = bonuses || {};
 
   // key format: punch:YYYY-MM-DD:name
   const parsed = Object.keys(punchValues)
@@ -157,8 +180,9 @@ async function loadPayroll() {
     const rec = perStaff[s.name];
     const days = rec ? rec.days.size : 0;
     const hours = rec ? rec.hours : 0;
-    const wageCost = hours * wageForMonth(s, mKeyForWage);
-    rows.push({ name: s.name, days, hours, wageCost, total: wageCost });
+    const wageCost = hours * effectiveWageForMonth(s, mKeyForWage);
+    const bonus = Number(state.bonuses[s.name]) || 0;
+    rows.push({ name: s.name, days, hours, wageCost, bonus, total: wageCost + bonus });
   }
   state.rows = rows;
   state.loading = false;
@@ -226,13 +250,50 @@ function changeMonth(delta) {
   loadPayroll();
 }
 
+async function saveWageForMonth(name, newWageValue) {
+  const mKey = monthKey(state.cursor);
+  const trimmed = String(newWageValue).trim();
+  const next = { ...state.wageOverrides };
+  if (trimmed === "") {
+    // 空欄で保存 = この月だけの上書きを解除し、通常の時給(従業員管理側)に戻す
+    delete next[name];
+  } else {
+    const n = Number(trimmed);
+    if (isNaN(n)) return;
+    next[name] = n;
+  }
+  state.saving = true; render();
+  await apiSet(`payrollWageOverride:${mKey}`, next);
+  state.wageOverrides = next;
+  state.saving = false;
+  loadPayroll();
+}
+
+async function saveBonusForMonth(name, newBonusValue) {
+  const mKey = monthKey(state.cursor);
+  const trimmed = String(newBonusValue).trim();
+  const next = { ...state.bonuses };
+  if (trimmed === "" || Number(trimmed) === 0) {
+    delete next[name];
+  } else {
+    const n = Number(trimmed);
+    if (isNaN(n)) return;
+    next[name] = n;
+  }
+  state.saving = true; render();
+  await apiSet(`payrollBonus:${mKey}`, next);
+  state.bonuses = next;
+  state.saving = false;
+  loadPayroll();
+}
+
 function dailyTotalFor(dateStr) {
   const dayData = state.dailyByDate[dateStr] || {};
   const mKeyForDate = dateStr.slice(0, 7);
   let total = 0;
   for (const s of state.staffDirectory) {
     const hours = dayData[s.name];
-    if (hours) total += hours * wageForMonth(s, mKeyForDate);
+    if (hours) total += hours * effectiveWageForMonth(s, mKeyForDate);
   }
   return total;
 }
@@ -353,6 +414,7 @@ function render() {
         <td class="num">${r.days}日</td>
         <td class="num">${r.hours.toFixed(1)}h</td>
         <td class="num">${fmtYen(r.wageCost)}</td>
+        <td class="num">${r.bonus ? fmtYen(r.bonus) : "-"}</td>
         <td class="num" style="font-weight:700">${fmtYen(r.total)}</td>
       </tr>`;
     }
@@ -361,13 +423,47 @@ function render() {
         <table>
           <thead><tr>
             <th>名前</th><th class="num">出勤日数</th><th class="num">合計時間</th>
-            <th class="num">給与</th><th class="num">振込額</th>
+            <th class="num">給与</th><th class="num">ボーナス</th><th class="num">振込額</th>
           </tr></thead>
-          <tbody>${rowsHtml || `<tr><td colspan="5" style="text-align:center;color:var(--muted2)">データがありません</td></tr>`}</tbody>
+          <tbody>${rowsHtml || `<tr><td colspan="6" style="text-align:center;color:var(--muted2)">データがありません</td></tr>`}</tbody>
         </table>
         <div class="grand-total">今月の支払総額：${fmtYen(grand)}</div>
-        <p class="note">打刻データ（出勤〜退勤、休憩を除く実労働時間）と、スタッフ設定の時給から自動計算しています。</p>
+        <p class="note">打刻データ（出勤〜退勤、休憩を除く実労働時間）と、スタッフ設定の時給・ボーナスから自動計算しています。</p>
       </div>
+
+      <div class="card">
+        <div style="font-size:14px;font-weight:700;margin-bottom:4px">🕐 この月だけの時給（${state.cursor.getFullYear()}年${state.cursor.getMonth() + 1}月限定）</div>
+        <p class="note" style="margin-top:0">ここで設定した時給は「${state.cursor.getFullYear()}年${state.cursor.getMonth() + 1}月だけ」に適用されます。翌月には引き継がれず、従業員管理ページ側の時給（通常の時給）にも影響しません。入力欄を空にして保存すると、通常の時給に戻ります。</p>
+        ${state.staffDirectory.map((s) => {
+          const hasOverride = Object.prototype.hasOwnProperty.call(state.wageOverrides, s.name);
+          const normalWage = wageForMonth(s, monthKey(state.cursor));
+          return `
+          <div style="display:flex;align-items:center;gap:8px;margin-top:8px">
+            <span style="flex:1;font-size:14px">${esc(s.name)}${hasOverride ? ` <span style="font-size:11px;color:var(--orange)">（この月だけ変更中）</span>` : ""}</span>
+            <input type="number" id="wageInput_${esc(s.name)}" placeholder="${normalWage}（通常）" value="${hasOverride ? state.wageOverrides[s.name] : ""}" style="width:130px;border:1px solid var(--border);border-radius:6px;padding:8px;font-size:14px" />
+            <span style="font-size:12px;color:var(--muted)">円/時</span>
+            <button class="submit-btn" style="width:auto;margin-top:0;padding:8px 14px" onclick="saveWageForMonth('${esc(s.name)}', document.getElementById('wageInput_${esc(s.name)}').value)">保存</button>
+          </div>
+        `;
+        }).join("") || `<p class="note">スタッフが登録されていません。</p>`}
+      </div>
+
+      <div class="card">
+        <div style="font-size:14px;font-weight:700;margin-bottom:4px">🎁 ボーナス（${state.cursor.getFullYear()}年${state.cursor.getMonth() + 1}月分）</div>
+        <p class="note" style="margin-top:0">ここで入力した金額が、この月の振込額にそのまま加算されます。0円または空欄で保存すると解除されます。</p>
+        ${state.staffDirectory.map((s) => {
+          const bonusVal = state.bonuses[s.name] || "";
+          return `
+          <div style="display:flex;align-items:center;gap:8px;margin-top:8px">
+            <span style="flex:1;font-size:14px">${esc(s.name)}</span>
+            <input type="number" id="bonusInput_${esc(s.name)}" placeholder="0" value="${bonusVal}" style="width:130px;border:1px solid var(--border);border-radius:6px;padding:8px;font-size:14px" />
+            <span style="font-size:12px;color:var(--muted)">円</span>
+            <button class="submit-btn" style="width:auto;margin-top:0;padding:8px 14px" onclick="saveBonusForMonth('${esc(s.name)}', document.getElementById('bonusInput_${esc(s.name)}').value)">保存</button>
+          </div>
+        `;
+        }).join("") || `<p class="note">スタッフが登録されていません。</p>`}
+      </div>
+
       ${renderDailyCopySection()}
     `;
   }
@@ -394,6 +490,8 @@ window.submitResetCode = submitResetCode;
 window.changeRangeStart = changeRangeStart;
 window.changeRangeEnd = changeRangeEnd;
 window.copyDailyText = copyDailyText;
+window.saveWageForMonth = saveWageForMonth;
+window.saveBonusForMonth = saveBonusForMonth;
 
 (async function boot() {
   if (state.authed) {
