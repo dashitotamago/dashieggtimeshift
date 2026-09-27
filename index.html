@@ -692,6 +692,79 @@ async function saveSlotsConfig() {
   state.saving = false;
   flash("シフト枠を保存しました");
 }
+
+// ---- 新人枠の削除＋ワンオペへの一括統合(1回限りのメンテナンス用) ----
+async function removeNewbieSlotAndMigrate() {
+  const newbie = state.weekdaySlots.find((s) => s.label.includes("新人"));
+  if (!newbie) {
+    flash("「新人」という名前の平日枠が見つかりませんでした");
+    return;
+  }
+  const targetId = "w1";
+  if (!state.weekdaySlots.some((s) => s.id === targetId)) {
+    flash("ワンオペ枠(w1)が見つからないため中止しました");
+    return;
+  }
+  if (!confirm(`「${newbie.label}」枠を削除し、これまでの希望シフト・確定シフトを全てワンオペ枠に統合します。元に戻せません。よろしいですか？`)) return;
+
+  const newbieId = newbie.id;
+  state.saving = true; render();
+
+  // ① 希望シフト(submission)を全期間スキャンして移行
+  const subValues = await apiListValues("submission:");
+  let subUpdated = 0;
+  for (const key in subValues) {
+    const data = subValues[key];
+    let changed = false;
+    for (const dKey in data) {
+      const entry = data[dKey];
+      if (entry && Array.isArray(entry.slots) && entry.slots.includes(newbieId)) {
+        const next = entry.slots.filter((id) => id !== newbieId);
+        if (!next.includes(targetId)) next.push(targetId);
+        entry.slots = next;
+        changed = true;
+      }
+    }
+    if (changed) { await apiSet(key, data); subUpdated++; }
+  }
+
+  // ② 確定シフト(confirmed)を全期間スキャンして移行
+  const confValues = await apiListValues("confirmed:");
+  let confUpdated = 0;
+  for (const key in confValues) {
+    const data = confValues[key];
+    let changed = false;
+    for (const dKey in data) {
+      const dayConf = data[dKey];
+      if (dayConf && Object.prototype.hasOwnProperty.call(dayConf, newbieId)) {
+        dayConf[targetId] = dayConf[newbieId];
+        delete dayConf[newbieId];
+        changed = true;
+      }
+    }
+    if (changed) { await apiSet(key, data); confUpdated++; }
+  }
+
+  // ③ 固定済みの月のスナップショット(config)からも新人枠を除去
+  const cfgValues = await apiListValues("config:");
+  let cfgUpdated = 0;
+  for (const key in cfgValues) {
+    const data = cfgValues[key];
+    if (data && data.slotsSnapshot && Array.isArray(data.slotsSnapshot.weekday)) {
+      const before = data.slotsSnapshot.weekday.length;
+      data.slotsSnapshot.weekday = data.slotsSnapshot.weekday.filter((s) => s.id !== newbieId);
+      if (data.slotsSnapshot.weekday.length !== before) { await apiSet(key, data); cfgUpdated++; }
+    }
+  }
+
+  // ④ 現在の平日枠設定から新人枠を削除して保存
+  state.weekdaySlots = state.weekdaySlots.filter((s) => s.id !== newbieId);
+  await apiSet(`slotsConfig`, { weekday: state.weekdaySlots, holiday: state.holidaySlots, holidayEnd: state.holidayEndSlots });
+
+  state.saving = false;
+  flash(`完了：希望シフト${subUpdated}件・確定シフト${confUpdated}件・固定設定${cfgUpdated}件を統合しました`);
+  await loadMonthData();
+}
 function stateKeyFor(type) {
   if (type === "weekday") return "weekdaySlots";
   if (type === "holiday") return "holidaySlots";
@@ -1042,6 +1115,14 @@ function renderAdminTab() {
     <button class="save-btn" style="display:block;margin-top:16px" data-action="saveSlotsConfig">💾 シフト時間・人数を保存</button>
   </div>`;
 
+  if (state.weekdaySlots.some((s) => s.label.includes("新人"))) {
+    html += `<div class="card" style="margin-top:12px;background:#FBF8F2">
+      <div style="font-size:14px;font-weight:500;margin-bottom:4px">🧹 新人枠の削除・統合（1回限り）</div>
+      <p style="font-size:12px;color:var(--muted2);margin:0">「新人枠」を削除し、これまでに希望・確定されている新人枠の分をすべて「ワンオペ」枠に統合します。実行後は元に戻せません。</p>
+      <button class="remove-btn" style="margin-top:10px" data-action="removeNewbieSlotAndMigrate">新人枠を削除してワンオペに統合する</button>
+    </div>`;
+  }
+
   html += `<div class="card" style="margin-top:12px">
     <div style="font-size:14px;font-weight:500;margin-bottom:4px">⚠ 祝日の設定</div>
     <p style="font-size:12px;color:var(--muted2);margin:0 0 8px">カレンダー上の祝日は自動で土日祝扱いになります（オレンジ色・クリック不可）。それ以外に臨時休業などで土日祝扱いにしたい日は、クリックで追加できます。</p>
@@ -1377,6 +1458,7 @@ document.addEventListener("click", (e) => {
   else if (action === "addSlot") addSlot(el.dataset.type);
   else if (action === "removeSlot") removeSlot(el.dataset.type, el.dataset.id);
   else if (action === "saveSlotsConfig") saveSlotsConfig();
+  else if (action === "removeNewbieSlotAndMigrate") removeNewbieSlotAndMigrate();
   else if (action === "addStaff") addStaff();
   else if (action === "removeStaff") removeStaff(el.dataset.name);
   else if (action === "saveStaffDirectory") saveStaffDirectory();
