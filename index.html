@@ -464,11 +464,13 @@ async function loadMyRecord() {
   try {
     const now = new Date();
     const mKey = monthKey(now);
-    const [cfg, slotsCfg, conf] = await Promise.all([
+    const [cfg, slotsCfg, conf, bonuses] = await Promise.all([
       apiGet(`config:${mKey}`),
       apiGet(`slotsConfig`),
       apiGet(`confirmed:${mKey}`),
+      apiGet(`payrollBonus:${mKey}`),
     ]);
+    const myBonus = (bonuses && Number(bonuses[state.staffName])) || 0;
     const holidays = (cfg && cfg.holidays) || [];
     const dateOverridesM = (cfg && cfg.dateOverrides) || {};
     const snap = cfg && cfg.slotsSnapshot;
@@ -564,6 +566,7 @@ async function loadMyRecord() {
     state.myRecord = {
       rows, hoursTotal, wageTotal: hoursTotal * myWage, lateCount,
       confirmedTotal, confirmedFirstHalf, confirmedSecondHalf,
+      bonus: myBonus,
       monthLabel: `${now.getFullYear()}年${now.getMonth() + 1}月`,
     };
   } catch (err) {
@@ -1237,6 +1240,7 @@ function renderMyRecordTab() {
         <div><div style="font-size:11px;color:var(--muted)">労働時間</div><div style="font-size:20px;font-weight:700">${rec.hoursTotal.toFixed(1)}h</div></div>
         <div><div style="font-size:11px;color:var(--muted)">現状の給与見込み</div><div style="font-size:20px;font-weight:700">${fmtYen(rec.wageTotal)}</div></div>
         <div><div style="font-size:11px;color:var(--muted)">遅刻回数</div><div style="font-size:20px;font-weight:700">${rec.lateCount}回</div></div>
+        ${rec.bonus > 0 ? `<div><div style="font-size:11px;color:var(--muted)">今月のボーナス</div><div style="font-size:20px;font-weight:700;color:var(--orange)">${fmtYen(rec.bonus)}</div></div>` : ""}
       </div>
       <p style="font-size:11px;color:var(--muted2);margin-top:8px">給与見込みは、今月これまでの打刻から計算した時給ベースの概算です。実際の支給額とは異なる場合があります。</p>
     </div>
