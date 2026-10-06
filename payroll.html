@@ -174,15 +174,51 @@ async function loadPayroll() {
     state.selectedDate = availableDates.length ? availableDates[availableDates.length - 1] : "";
   }
 
+  // 日ごとに「最初に出勤打刻した人」「最後に退勤打刻した人」を特定し、
+  // 実労働時間はそのままに、給与だけ時給の2分相当を上乗せする
+  const openCloseBonusHoursByName = {}; // name -> ボーナス対象になった2分単位の回数
+  const byDate = {}; // dateStr -> [{name, records}]
+  for (const p of parsed) {
+    if (!p.records || !p.records.length) continue;
+    if (!byDate[p.dateStr]) byDate[p.dateStr] = [];
+    byDate[p.dateStr].push(p);
+  }
+  const dailyOpenCloseByDate = {}; // dateStr -> { name -> count(1 or 2) }
+  for (const dateStr in byDate) {
+    let earliestIn = null, earliestInName = null;
+    let latestOut = null, latestOutName = null;
+    for (const p of byDate[dateStr]) {
+      for (const r of p.records) {
+        const t = new Date(r.time);
+        if (r.type === "in" && (earliestIn === null || t < earliestIn)) { earliestIn = t; earliestInName = p.name; }
+        if (r.type === "out" && (latestOut === null || t > latestOut)) { latestOut = t; latestOutName = p.name; }
+      }
+    }
+    if (earliestInName) openCloseBonusHoursByName[earliestInName] = (openCloseBonusHoursByName[earliestInName] || 0) + 1;
+    if (latestOutName) openCloseBonusHoursByName[latestOutName] = (openCloseBonusHoursByName[latestOutName] || 0) + 1;
+    if (earliestInName) {
+      dailyOpenCloseByDate[dateStr] = dailyOpenCloseByDate[dateStr] || {};
+      dailyOpenCloseByDate[dateStr][earliestInName] = (dailyOpenCloseByDate[dateStr][earliestInName] || 0) + 1;
+    }
+    if (latestOutName) {
+      dailyOpenCloseByDate[dateStr] = dailyOpenCloseByDate[dateStr] || {};
+      dailyOpenCloseByDate[dateStr][latestOutName] = (dailyOpenCloseByDate[dateStr][latestOutName] || 0) + 1;
+    }
+  }
+  state.dailyOpenCloseByDate = dailyOpenCloseByDate;
+
   const rows = [];
   const mKeyForWage = monthKey(state.cursor);
   for (const s of state.staffDirectory) {
     const rec = perStaff[s.name];
     const days = rec ? rec.days.size : 0;
     const hours = rec ? rec.hours : 0;
-    const wageCost = hours * effectiveWageForMonth(s, mKeyForWage);
+    const wage = effectiveWageForMonth(s, mKeyForWage);
+    const openCloseCount = openCloseBonusHoursByName[s.name] || 0; // 最初/最後になった回数(同日に両方なら2)
+    const openCloseBonusPay = openCloseCount * (2 / 60) * wage;
+    const wageCost = hours * wage + openCloseBonusPay;
     const bonus = Number(state.bonuses[s.name]) || 0;
-    rows.push({ name: s.name, days, hours, wageCost, bonus, total: wageCost + bonus });
+    rows.push({ name: s.name, days, hours, wageCost, bonus, openCloseCount, total: wageCost + bonus });
   }
   state.rows = rows;
   state.loading = false;
@@ -289,11 +325,15 @@ async function saveBonusForMonth(name, newBonusValue) {
 
 function dailyTotalFor(dateStr) {
   const dayData = state.dailyByDate[dateStr] || {};
+  const openClose = (state.dailyOpenCloseByDate && state.dailyOpenCloseByDate[dateStr]) || {};
   const mKeyForDate = dateStr.slice(0, 7);
   let total = 0;
   for (const s of state.staffDirectory) {
     const hours = dayData[s.name];
-    if (hours) total += hours * effectiveWageForMonth(s, mKeyForDate);
+    if (!hours) continue;
+    const wage = effectiveWageForMonth(s, mKeyForDate);
+    const bonusCount = openClose[s.name] || 0;
+    total += hours * wage + bonusCount * (2 / 60) * wage;
   }
   return total;
 }
@@ -428,7 +468,7 @@ function render() {
           <tbody>${rowsHtml || `<tr><td colspan="6" style="text-align:center;color:var(--muted2)">データがありません</td></tr>`}</tbody>
         </table>
         <div class="grand-total">今月の支払総額：${fmtYen(grand)}</div>
-        <p class="note">打刻データ（出勤〜退勤、休憩を除く実労働時間）と、スタッフ設定の時給・ボーナスから自動計算しています。</p>
+        <p class="note">打刻データ（出勤〜退勤、休憩を除く実労働時間）と、スタッフ設定の時給・ボーナスから自動計算しています。各日、その日最初に出勤打刻した人・最後に退勤打刻した人には、時給の2分相当を給与に上乗せしています（打刻上の実労働時間そのものは変更していません）。</p>
       </div>
 
       <div class="card">
