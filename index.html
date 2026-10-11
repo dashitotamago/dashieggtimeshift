@@ -259,6 +259,7 @@ const state = {
   confirmed: {},
   myRecord: null, // { rows, hoursTotal, wageTotal, lateCount }
   myRecordLoading: false,
+  myRecordOffset: 0, // 0=今月, 1=先月, 2=2か月前, 3=3か月前
   myRecordError: false,
 };
 
@@ -462,7 +463,8 @@ async function loadMyRecord() {
   render();
 
   try {
-    const now = new Date();
+    const realNow = new Date();
+    const now = new Date(realNow.getFullYear(), realNow.getMonth() - (state.myRecordOffset || 0), 1);
     const mKey = monthKey(now);
     const [cfg, slotsCfg, conf, bonuses] = await Promise.all([
       apiGet(`config:${mKey}`),
@@ -478,7 +480,7 @@ async function loadMyRecord() {
     const holidaySlotsM = pickSlots("holiday", snap, slotsCfg);
     const holidayEndSlotsM = pickSlots("holidayEnd", snap, slotsCfg);
     const confirmedM = conf || {};
-    const myWage = wageOf(state.staffName);
+    const myWage = wageOf(state.staffName, mKey);
 
     function isNonWorkingM(d, dKey) {
       const dow = d.getDay();
@@ -521,7 +523,7 @@ async function loadMyRecord() {
     }
 
     for (const d of dates) {
-      if (d > now) continue;
+      if (d > realNow) continue;
       const dKey = dateKey(d);
       const records = recordsByDate[dKey];
       if (!records || !records.length) continue;
@@ -568,6 +570,7 @@ async function loadMyRecord() {
       confirmedTotal, confirmedFirstHalf, confirmedSecondHalf,
       bonus: myBonus,
       monthLabel: `${now.getFullYear()}年${now.getMonth() + 1}月`,
+      offset: state.myRecordOffset || 0,
     };
   } catch (err) {
     console.error("loadMyRecord failed", err);
@@ -1233,14 +1236,18 @@ function renderMyRecordTab() {
       <td>${r.isLate ? `<span style="color:var(--rose);font-weight:700">遅刻 ${r.lateMinutes}分</span>` : ""}</td>
     </tr>`;
   }
+  const offLabels = ["今月", "先月", "2か月前", "3か月前"];
+  const monthSwitch = `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">${offLabels.map((l, i) =>
+    `<button class="submit-btn" style="padding:6px 12px;font-size:12px;${(state.myRecordOffset || 0) === i ? "" : "background:transparent;color:var(--muted);border:1px solid var(--muted2)"}" data-action="setMyRecordMonth" data-offset="${i}">${l}</button>`).join("")}</div>`;
   return `
+    ${monthSwitch}
     <div class="card">
       <div style="font-size:13px;font-weight:700;margin-bottom:8px">${esc(rec.monthLabel)}の記録（${esc(state.staffName)}）</div>
       <div style="display:flex;gap:16px;flex-wrap:wrap">
         <div><div style="font-size:11px;color:var(--muted)">労働時間</div><div style="font-size:20px;font-weight:700">${rec.hoursTotal.toFixed(1)}h</div></div>
-        <div><div style="font-size:11px;color:var(--muted)">現状の給与見込み</div><div style="font-size:20px;font-weight:700">${fmtYen(rec.wageTotal)}</div></div>
+        <div><div style="font-size:11px;color:var(--muted)">${rec.offset === 0 ? "現状の給与見込み" : "給与見込み"}</div><div style="font-size:20px;font-weight:700">${fmtYen(rec.wageTotal)}</div></div>
         <div><div style="font-size:11px;color:var(--muted)">遅刻回数</div><div style="font-size:20px;font-weight:700">${rec.lateCount}回</div></div>
-        ${rec.bonus > 0 ? `<div><div style="font-size:11px;color:var(--muted)">今月のボーナス</div><div style="font-size:20px;font-weight:700;color:var(--orange)">${fmtYen(rec.bonus)}</div></div>` : ""}
+        ${rec.bonus > 0 ? `<div><div style="font-size:11px;color:var(--muted)">${rec.offset === 0 ? "今月" : "この月"}のボーナス</div><div style="font-size:20px;font-weight:700;color:var(--orange)">${fmtYen(rec.bonus)}</div></div>` : ""}
       </div>
       <p style="font-size:11px;color:var(--muted2);margin-top:8px">給与見込みは、今月これまでの打刻から計算した時給ベースの概算です。実際の支給額とは異なる場合があります。</p>
     </div>
@@ -1248,7 +1255,7 @@ function renderMyRecordTab() {
       <div style="font-size:13px;font-weight:700;margin-bottom:8px">打刻履歴</div>
       <table>
         <thead><tr><th>日付</th><th>出勤</th><th>退勤</th><th>時間</th><th>備考</th></tr></thead>
-        <tbody>${rows || `<tr><td colspan="5" style="text-align:center;color:var(--muted2)">この月の打刻記録はまだありません</td></tr>`}</tbody>
+        <tbody>${rows || `<tr><td colspan="5" style="text-align:center;color:var(--muted2)">この月の打刻記録はありません</td></tr>`}</tbody>
       </table>
     </div>
   `;
@@ -1441,6 +1448,7 @@ document.addEventListener("click", (e) => {
     if (state.tab === "myrecord" && !state.myRecord && !state.myRecordLoading) loadMyRecord();
   }
   else if (action === "retryMyRecord") loadMyRecord();
+  else if (action === "setMyRecordMonth") { state.myRecordOffset = Number(el.dataset.offset) || 0; loadMyRecord(); }
   else if (action === "toggleSlot") toggleSlot(el.dataset.date, el.dataset.slot);
   else if (action === "submit") submitMyShift();
   else if (action === "toggleHoliday") toggleHoliday(el.dataset.date);
