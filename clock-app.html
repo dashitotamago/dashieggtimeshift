@@ -115,6 +115,8 @@ const state = {
   staffDirectory: [],
   selectedName: "",
   selectedType: null,
+  history: [],
+  historyLoading: false,
   stream: null,
   loading: true,
   saving: false,
@@ -182,6 +184,12 @@ async function loadStaff() {
 
 function selectType(typeId) {
   if (!state.selectedName) { flash("従業員名を選択してください"); return; }
+  if (typeId === "out") {
+    if (!confirm(`${state.selectedName}さん、退勤を打刻します。よろしいですか？`)) return;
+    state.selectedType = "out";
+    commitPunch(null); // 退勤は写真なし
+    return;
+  }
   state.selectedType = typeId;
   render();
   startCamera();
@@ -219,41 +227,136 @@ async function capturePhoto() {
   canvas.getContext("2d").drawImage(video, 0, 0);
   const base64 = canvas.toDataURL("image/jpeg", 0.8);
   stopCamera();
+  commitPunch(base64);
+}
 
+async function commitPunch(base64) {
   state.saving = true; render();
   const now = new Date();
   const dKey = dateKey(now);
-  const filename = `${state.selectedName}_${dKey}_${state.selectedType}_${now.getTime()}`;
-  const photoResult = await apiSavePhoto(base64, filename);
+  const name = state.selectedName;
+  const type = state.selectedType;
+  const filename = `${name}_${dKey}_${type}_${now.getTime()}`;
+  const punchKey = `punch:${dKey}:${name}`;
 
-  if (!photoResult || !photoResult.url) {
-    state.saving = false;
-    state.resultMsg = `⚠ 写真の保存に失敗しました\n${(photoResult && photoResult.error) || "不明なエラー"}\nもう一度お試しください。`;
-    state.selectedType = null;
-    render();
-    setTimeout(() => { state.resultMsg = null; render(); }, 8000);
-    return;
-  }
+  // 1) 写真保存(失敗しても打刻自体は記録する)
+  const needPhoto = base64 != null;
+  const photoResult = needPhoto ? await apiSavePhoto(base64, filename) : null;
+  const photoOk = !needPhoto || !!(photoResult && photoResult.url);
+  const record = { type, time: now.toISOString(), photoUrl: (needPhoto && photoOk) ? photoResult.url : "" };
 
-  const punchKey = `punch:${dKey}:${state.selectedName}`;
-  const existing = (await apiGet(punchKey)) || [];
-  existing.push({ type: state.selectedType, time: now.toISOString(), photoUrl: photoResult.url || "" });
-  await apiSet(punchKey, existing);
+  // 2) 打刻記録(再試行付き・サーバー確認つき)。失敗したら端末に保留して自動再送
+  const saved = await savePunchReliably(punchKey, record);
+  if (!saved) addPending({ key: punchKey, record });
 
+  // 3) LINE送信は打刻が確定してから
   let lineResult = null;
-  if (state.selectedType === "in" && photoResult.fileId) {
-    lineResult = await apiAction({ action: "notifyLineClockIn", fileId: photoResult.fileId, name: state.selectedName, time: now.toISOString() });
+  if (saved && type === "in" && needPhoto && photoOk && photoResult.fileId) {
+    lineResult = await apiAction({ action: "notifyLineClockIn", fileId: photoResult.fileId, name, time: now.toISOString() });
   }
 
   state.saving = false;
-  const typeInfo = PUNCH_TYPES.find((t) => t.id === state.selectedType);
-  state.resultMsg = `${state.selectedName}さん ${typeInfo.label} 完了（${timeLabel(now)}）`;
+  const typeInfo = PUNCH_TYPES.find((t) => t.id === type);
+  let long = false;
+  if (saved) {
+    state.resultMsg = `${name}さん ${typeInfo.label} 完了（${timeLabel(now)}）`;
+  } else {
+    state.resultMsg = `⚠ 通信が不安定で打刻の確定を確認できませんでした\n記録は端末に保留しました（${timeLabel(now)}）。自動で再送します。\n再度打刻せず、少し待ってから管理者に確認してください。`;
+    long = true;
+  }
+  if (!photoOk) { state.resultMsg += `\n⚠ 写真の保存に失敗（打刻は記録済み）`; long = true; }
   if (lineResult && !lineResult.sent) {
     state.resultMsg += `\n⚠ LINE送信失敗: ${lineResult.reason || (lineResult.status + " " + lineResult.body)}`;
+    long = true;
   }
   state.selectedType = null;
   render();
-  setTimeout(() => { state.resultMsg = null; render(); }, lineResult && !lineResult.sent ? 8000 : 3000);
+  loadHistory();
+  setTimeout(() => { state.resultMsg = null; render(); }, long ? 10000 : 3000);
+}
+
+// ---- 打刻の確実な保存 ----
+const PENDING_KEY = "clockPendingPunches";
+function loadPending() { try { return JSON.parse(localStorage.getItem(PENDING_KEY) || "[]"); } catch (e) { return []; } }
+function storePending(list) { try { localStorage.setItem(PENDING_KEY, JSON.stringify(list)); } catch (e) {} }
+function addPending(item) { const l = loadPending(); l.push(item); storePending(l); }
+
+async function postJson(payload, timeoutMs) {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), timeoutMs || 25000);
+  try {
+    const res = await fetch(CONFIG.API_URL, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify(payload),
+      signal: ctrl.signal,
+    });
+    return await res.json();
+  } finally { clearTimeout(t); }
+}
+async function readPunchList(key) {
+  // 失敗(null)と「データ無し」([])を区別する
+  const res = await fetch(`${CONFIG.API_URL}?action=get&key=${encodeURIComponent(key)}`);
+  const data = await res.json();
+  if (!data || data.error) throw new Error((data && data.error) || "read failed");
+  if (data.value == null || data.value === "") return [];
+  return JSON.parse(data.value);
+}
+function hasRecord(list, rec) { return Array.isArray(list) && list.some((r) => r.type === rec.type && r.time === rec.time); }
+
+async function savePunchReliably(key, record) {
+  for (let i = 0; i < 4; i++) {
+    try {
+      const r = await postJson({ action: "appendPunch", key, record });
+      if (r && r.ok) return true;
+      if (r && r.error && /unknown action/.test(r.error)) {
+        // Code.gs が未更新の場合の代替(読み込み成功時のみ追記)
+        const list = await readPunchList(key);
+        if (!hasRecord(list, record)) {
+          list.push(record);
+          await postJson({ action: "set", key, value: JSON.stringify(list) });
+        }
+        const verify = await readPunchList(key);
+        if (hasRecord(verify, record)) return true;
+      }
+    } catch (e) { console.error("savePunch attempt failed", i, e); }
+    await new Promise((r) => setTimeout(r, 800 * (i + 1)));
+  }
+  // 最後に、実は保存されていたか確認
+  try { if (hasRecord(await readPunchList(key), record)) return true; } catch (e) {}
+  return false;
+}
+
+let flushing = false;
+async function flushPending() {
+  if (flushing) return;
+  const list = loadPending();
+  if (!list.length) return;
+  flushing = true;
+  const rest = [];
+  for (const item of list) {
+    const ok = await savePunchReliably(item.key, item.record);
+    if (!ok) rest.push(item);
+  }
+  storePending(rest);
+  flushing = false;
+}
+setInterval(flushPending, 30000);
+
+async function loadHistory() {
+  const name = state.selectedName;
+  if (!name) { state.history = []; return; }
+  state.historyLoading = true; render();
+  const days = [];
+  for (let i = 0; i < 14; i++) { const d = new Date(); d.setDate(d.getDate() - i); days.push(dateKey(d)); }
+  const results = await Promise.all(days.map((k) => apiGet(`punch:${k}:${name}`)));
+  if (state.selectedName !== name) return;
+  const all = [];
+  results.forEach((list) => { if (Array.isArray(list)) list.forEach((r) => all.push(r)); });
+  all.sort((a, b) => new Date(b.time) - new Date(a.time));
+  state.history = all.slice(0, 3);
+  state.historyLoading = false;
+  render();
 }
 
 function render() {
@@ -307,7 +410,9 @@ function render() {
 
   let body;
 
-  if (state.selectedType) {
+  if (state.selectedType === "out") {
+    body = `<div class="center-msg">${esc(state.selectedName)}さん 退勤を記録中…</div>`;
+  } else if (state.selectedType) {
     body = `
       <div class="card">
         <p style="text-align:center;font-weight:700;margin-top:0">
@@ -341,6 +446,7 @@ function render() {
         ${PUNCH_TYPES.map((t) => `<button class="clock-btn ${t.cls}" onclick="selectType('${t.id}')" ${!state.selectedName ? "disabled" : ""}>${t.icon} ${t.label}</button>`).join("")}
       </div>
       ${state.flash ? `<div class="flash">${esc(state.flash)}</div>` : ""}
+      ${state.selectedName ? renderHistory() : ""}
     `;
   }
 
@@ -356,9 +462,23 @@ function render() {
   }
 }
 
+function renderHistory() {
+  let inner;
+  if (state.historyLoading) inner = `<p style="color:var(--muted,#888);margin:0">読み込み中…</p>`;
+  else if (!state.history.length) inner = `<p style="color:var(--muted,#888);margin:0">直近の打刻はありません</p>`;
+  else inner = state.history.map((r) => {
+    const d = new Date(r.time);
+    const label = r.type === "in" ? "🟢 出勤" : "🔴 退勤";
+    return `<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid rgba(128,128,128,.2)"><span>${label}</span><span>${d.getMonth() + 1}/${d.getDate()} ${timeLabel(d)}</span></div>`;
+  }).join("");
+  return `<div class="card"><div style="font-size:13px;font-weight:700;margin-bottom:6px">${esc(state.selectedName)}さんの直近の打刻（3回分）</div>${inner}</div>`;
+}
+
 function onSelectStaff(name) {
   state.selectedName = name;
+  state.history = [];
   render();
+  loadHistory();
 }
 
 window.selectType = selectType;
@@ -375,6 +495,7 @@ window.render = render;
   state.adminPasswordValue = storedPw != null ? storedPw : null;
   await checkDeviceAuthorized();
   if (state.deviceAuthorized) loadStaff();
+  flushPending();
 })();
 </script>
 </body>
