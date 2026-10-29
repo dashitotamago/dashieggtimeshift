@@ -1265,6 +1265,7 @@ function renderReportTab() {
   const dates = daysInMonth(state.cursor.getFullYear(), state.cursor.getMonth());
   let rows = "";
   let monthTotal = 0;
+  const showCost = state.route === "admin"; // スタッフ画面では人件費を非表示
   for (const d of dates) {
     const dKey = dateKey(d);
     const weekend = isWeekendType(d);
@@ -1276,12 +1277,12 @@ function renderReportTab() {
     let cell = "";
     if (!assignedAny) cell = `<span style="color:var(--rose)">未確定</span>`;
     else cell = slots.filter((s) => conf[s.id]).map((s) => `<div>${esc(s.label)}（${s.start}〜${s.end}）：${esc(conf[s.id])}</div>`).join("");
-    rows += `<tr><td>${dateLabelHtml(d, weekend)}</td><td>${cell}</td><td>${cost > 0 ? fmtYen(cost) : ""}</td></tr>`;
+    rows += `<tr><td>${dateLabelHtml(d, weekend)}</td><td>${cell}</td>${showCost ? `<td>${cost > 0 ? fmtYen(cost) : ""}</td>` : ""}</tr>`;
   }
   return `<div class="card">
     <div style="font-size:14px;font-weight:700;margin-bottom:12px">👥 確定シフト一覧</div>
-    <table><thead><tr><th>日付</th><th>担当</th><th>人件費</th></tr></thead><tbody>${rows}</tbody></table>
-    <div class="grand-total">今月の人件費合計：${fmtYen(monthTotal)}</div>
+    <table><thead><tr><th>日付</th><th>担当</th>${showCost ? "<th>人件費</th>" : ""}</tr></thead><tbody>${rows}</tbody></table>
+    ${showCost ? `<div class="grand-total">今月の人件費合計：${fmtYen(monthTotal)}</div>` : ""}
   </div>`;
 }
 
