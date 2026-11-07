@@ -356,6 +356,26 @@ function pickSlots(category, snapshot, liveCfg) {
   return DEFAULT_HOLIDAY_END_SLOTS;
 }
 
+// ---- 月ごとのシフト時間設定 ----
+// 優先順位: その月の設定(slotsConfig:YYYY-MM) → 確定時に固定された時間 → 前の月の設定(さかのぼる) → 旧・共通設定 → 初期値
+let _allCfgCache = null;
+async function resolveSlotsFor(mKey, cfgM, monthlyMap) {
+  const own = monthlyMap && monthlyMap["slotsConfig:" + mKey];
+  if (own) return own;
+  if (cfgM && cfgM.slotsSnapshot) return cfgM.slotsSnapshot;
+  let [y, m] = mKey.split("-").map(Number);
+  for (let i = 0; i < 24; i++) {
+    m--; if (m === 0) { m = 12; y--; }
+    const k = `${y}-${String(m).padStart(2, "0")}`;
+    if (monthlyMap && monthlyMap["slotsConfig:" + k]) return monthlyMap["slotsConfig:" + k];
+    if (!_allCfgCache) _allCfgCache = apiListValues("config:");
+    const all = await _allCfgCache;
+    const c = all["config:" + k];
+    if (c && c.slotsSnapshot) return c.slotsSnapshot;
+  }
+  return null;
+}
+
 function isWeekendType(d) { return isNonWorkingDay(d); }
 function dayCategory(d) {
   if (!isNonWorkingDay(d)) return "weekday";
@@ -427,12 +447,13 @@ async function loadMonthData() {
   state.loading = true;
   render();
   const mKey = monthKey(state.cursor);
-  const [cfg, slotsCfg, conf, staffList, subValues] = await Promise.all([
+  const [cfg, slotsCfg, conf, staffList, subValues, monthlySlots] = await Promise.all([
     apiGet(`config:${mKey}`),
     apiGet(`slotsConfig`),
     apiGet(`confirmed:${mKey}`),
     apiGet(`staffList`),
     apiListValues(`submission:${mKey}:`),
+    apiListValues(`slotsConfig:`),
   ]);
   state.staffDirectory = normalizeStaffDirectory(staffList);
   let subs = {};
@@ -443,7 +464,8 @@ async function loadMonthData() {
   state.holidays = (cfg && cfg.holidays) || [];
   state.unlockedDates = (cfg && cfg.unlockedDates) || [];
   state.dateOverrides = (cfg && cfg.dateOverrides) || {};
-  state.slotsSnapshot = (cfg && cfg.slotsSnapshot) || null;
+  state.slotsOwn = !!monthlySlots["slotsConfig:" + mKey];
+  state.slotsSnapshot = await resolveSlotsFor(mKey, cfg, monthlySlots);
   state.weekdaySlots = pickSlots("weekday", state.slotsSnapshot, slotsCfg);
   state.holidaySlots = pickSlots("holiday", state.slotsSnapshot, slotsCfg);
   state.holidayEndSlots = pickSlots("holidayEnd", state.slotsSnapshot, slotsCfg);
@@ -466,16 +488,17 @@ async function loadMyRecord() {
     const realNow = new Date();
     const now = new Date(realNow.getFullYear(), realNow.getMonth() - (state.myRecordOffset || 0), 1);
     const mKey = monthKey(now);
-    const [cfg, slotsCfg, conf, bonuses] = await Promise.all([
+    const [cfg, slotsCfg, conf, bonuses, monthlyMap] = await Promise.all([
       apiGet(`config:${mKey}`),
       apiGet(`slotsConfig`),
       apiGet(`confirmed:${mKey}`),
       apiGet(`payrollBonus:${mKey}`),
+      apiListValues(`slotsConfig:`),
     ]);
     const myBonus = (bonuses && Number(bonuses[state.staffName])) || 0;
     const holidays = (cfg && cfg.holidays) || [];
     const dateOverridesM = (cfg && cfg.dateOverrides) || {};
-    const snap = cfg && cfg.slotsSnapshot;
+    const snap = await resolveSlotsFor(mKey, cfg, monthlyMap);
     const weekdaySlotsM = pickSlots("weekday", snap, slotsCfg);
     const holidaySlotsM = pickSlots("holiday", snap, slotsCfg);
     const holidayEndSlotsM = pickSlots("holidayEnd", snap, slotsCfg);
@@ -686,17 +709,22 @@ async function saveConfirmed() {
     holidayEnd: state.holidayEndSlots.map((s) => ({ ...s })),
   };
   await apiSet(`confirmed:${monthKey(state.cursor)}`, state.confirmed);
+  _allCfgCache = null;
   await saveDateConfig();
   state.saving = false;
-  flash("確定シフトを保存しました（この月の時間設定も固定されました）");
+  flash("確定シフトを保存しました");
 }
 
 // ---- slot (shift time / headcount) editing ----
 async function saveSlotsConfig() {
   state.saving = true; render();
-  await apiSet(`slotsConfig`, { weekday: state.weekdaySlots, holiday: state.holidaySlots, holidayEnd: state.holidayEndSlots });
+  const payload = { weekday: state.weekdaySlots, holiday: state.holidaySlots, holidayEnd: state.holidayEndSlots };
+  await apiSet(`slotsConfig:${monthKey(state.cursor)}`, payload);
+  _allCfgCache = null;
+  state.slotsOwn = true;
+  state.slotsSnapshot = payload;
   state.saving = false;
-  flash("シフト枠を保存しました");
+  flash(`${state.cursor.getMonth() + 1}月のシフト枠を保存しました（以降の月にも引き継がれます）`);
 }
 
 // ---- 新人枠の削除＋ワンオペへの一括統合(1回限りのメンテナンス用) ----
@@ -1114,7 +1142,8 @@ function renderAdminTab() {
     <div style="font-size:14px;font-weight:500;margin-bottom:4px">🕐 シフト時間・人数の設定</div>
     <p style="font-size:12px;color:var(--muted2);margin:0">枠を追加すると、その日の人数を増やせます。削除すると人数が減ります。</p>
     <p style="font-size:12px;color:var(--muted2);margin:4px 0 0">「休日」＝連休の途中の日（土日祝が連続する場合、最終日より前）。「連休終了日」＝土日祝の連続が終わる最後の日（単独の土日なら日曜、土日月が休みなら月曜など）。</p>
-    ${state.slotsSnapshot ? `<p style="font-size:12px;color:var(--orange);margin:6px 0 0">🔒 この月は一度「シフトを確定して保存」した時点の時間で固定されています。ここで変更しても、この月には反映されません（他の未確定の月の初期設定として使われます）。この月の時間を変えたい場合は、変更後にもう一度「シフトを確定して保存」を押してください。</p>` : ""}
+    <p style="font-size:13px;font-weight:700;color:var(--orange);margin:8px 0 0">📅 ${state.cursor.getFullYear()}年${state.cursor.getMonth() + 1}月の設定${state.slotsOwn ? "（この月専用の設定あり）" : "（この月専用の設定なし：前の月の時間を引き継いでいます）"}</p>
+    <p style="font-size:12px;color:var(--muted2);margin:4px 0 0">シフト時間は月ごとに設定します。変更して保存した月から、次に変更するまでの月へそのまま引き継がれます。過去の月には影響しません。</p>
     ${slotEditorHtml("weekday", state.weekdaySlots, "平日")}
     ${slotEditorHtml("holiday", state.holidaySlots, "休日")}
     ${slotEditorHtml("holidayEnd", state.holidayEndSlots, "連休終了日")}
