@@ -117,6 +117,8 @@ const state = {
   selectedType: null,
   history: [],
   historyLoading: false,
+  checking: false,
+  checks: [],
   stream: null,
   loading: true,
   saving: false,
@@ -190,10 +192,32 @@ function selectType(typeId) {
     commitPunch(null); // 退勤は写真なし
     return;
   }
+  // 出勤: 身だしなみチェックを全て確認してから撮影へ
   state.selectedType = typeId;
+  state.checking = true;
+  state.checks = GROOMING_ITEMS.map(() => false);
+  render();
+}
+const GROOMING_ITEMS = [
+  "制服を着用している",
+  "清潔感があり、身だしなみに問題がない",
+  "爪が短く清潔であるか、看板掲示後手袋をする",
+];
+function toggleCheck(i) { state.checks[i] = !state.checks[i]; render(); }
+function proceedToCamera() {
+  if (!state.checks.every(Boolean)) return;
+  state.checking = false;
   render();
   startCamera();
 }
+function cancelChecklist() {
+  state.checking = false;
+  state.selectedType = null;
+  render();
+}
+window.toggleCheck = toggleCheck;
+window.proceedToCamera = proceedToCamera;
+window.cancelChecklist = cancelChecklist;
 
 async function startCamera() {
   try {
@@ -410,7 +434,23 @@ function render() {
 
   let body;
 
-  if (state.selectedType === "out") {
+  if (state.checking) {
+    const all = state.checks.every(Boolean);
+    body = `
+      <div class="card">
+        <p style="text-align:center;font-weight:700;margin-top:0">${esc(state.selectedName)}さん 身だしなみチェック</p>
+        <p style="font-size:13px;margin:0 0 8px;text-align:center">全てにチェックを入れてから撮影に進んでください</p>
+        ${GROOMING_ITEMS.map((t, i) => `
+          <label style="display:flex;align-items:center;gap:12px;padding:14px 8px;border-bottom:1px solid rgba(128,128,128,.25);font-size:17px;cursor:pointer">
+            <input type="checkbox" style="width:26px;height:26px;flex:none" ${state.checks[i] ? "checked" : ""} onchange="toggleCheck(${i})" />
+            <span>${esc(t)}</span>
+          </label>`).join("")}
+        <div class="cam-actions" style="margin-top:14px">
+          <button class="btn-cancel" onclick="cancelChecklist()">キャンセル</button>
+          <button class="btn-capture" onclick="proceedToCamera()" ${all ? "" : "disabled"}>📸 撮影へ進む</button>
+        </div>
+      </div>`;
+  } else if (state.selectedType === "out") {
     body = `<div class="center-msg">${esc(state.selectedName)}さん 退勤を記録中…</div>`;
   } else if (state.selectedType) {
     body = `
