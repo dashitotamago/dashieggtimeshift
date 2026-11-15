@@ -170,6 +170,34 @@ async function apiListValues(prefix) {
     return out;
   } catch (e) { console.error("apiListValues failed", prefix, e); return {}; }
 }
+// まとめて1回で取得(Code.gsのgetMany)。未対応なら並列の個別取得に切り替える
+async function apiBatch(keys, prefixes) {
+  try {
+    const res = await fetch(`${CONFIG.API_URL}?action=getMany&keys=${encodeURIComponent(JSON.stringify(keys))}&prefixes=${encodeURIComponent(JSON.stringify(prefixes))}`);
+    const data = await res.json();
+    if (data && !data.error && data.values) {
+      const values = {}, lists = {};
+      for (const k in data.values) { try { values[k] = JSON.parse(data.values[k]); } catch (e) {} }
+      for (const pf in data.lists || {}) {
+        lists[pf] = {};
+        for (const it of data.lists[pf]) { try { lists[pf][it.key] = JSON.parse(it.value); } catch (e) {} }
+      }
+      return { values, lists };
+    }
+  } catch (e) { console.error("getMany failed, fallback", e); }
+  const values = {}, lists = {};
+  await Promise.all([
+    ...keys.map(async (k) => { const v = await apiGet(k); if (v != null) values[k] = v; }),
+    ...prefixes.map(async (pf) => { lists[pf] = await apiListValues(pf); }),
+  ]);
+  return { values, lists };
+}
+// 過去6か月より前のデータは別シートに退避済みのため、それより前の月へは移動できない
+function monthTooOld(d) {
+  const n = new Date();
+  const min = new Date(n.getFullYear(), n.getMonth() - 6, 1);
+  return d < min;
+}
 async function apiAction(payload) {
   try {
     const res = await fetch(CONFIG.API_URL, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify(payload) });
@@ -308,7 +336,6 @@ function adminLogin() {
     state.authed = true;
     sessionStorage.setItem("payrollAuthed", "1");
     loadMonth();
-    loadLateSummary();
   } else {
     const el = document.getElementById("loginFlash");
     if (el) el.textContent = "パスワードが違います";
@@ -340,9 +367,10 @@ async function submitResetCode() {
 }
 
 function changeMonth(delta) {
-  state.cursor = new Date(state.cursor.getFullYear(), state.cursor.getMonth() + delta, 1);
+  const nc = new Date(state.cursor.getFullYear(), state.cursor.getMonth() + delta, 1);
+  if (monthTooOld(nc)) { flash("6か月より前のデータは退避済みのため表示できません"); return; }
+  state.cursor = nc;
   loadMonth();
-  loadLateSummary();
 }
 function setTab(t) { state.tab = t; render(); }
 
@@ -364,50 +392,46 @@ function computeBudgetStats(values) {
   return { byStaff, achieved, total };
 }
 
+let _mb = null; // 表示中の月のまとめ取得結果(遅刻集計でも使い回す)
 async function loadMonth() {
   state.loading = true; render();
   const mKey = monthKey(state.cursor);
-  const list = await apiGet("staffList");
-  state.staffDirectory = normalizeStaffDirectory(list);
+  const b = await apiBatch(
+    [`staffList`, `config:${mKey}`, `slotsConfig`, `confirmed:${mKey}`, `lateCountResetAt`],
+    [`slotsConfig:`, `punch:${mKey}`, `submission:${mKey}:`, `teijiReport:${mKey}-`]
+  );
+  _mb = { mKey, b };
+  const v = b.values, l = b.lists;
+  state.staffDirectory = normalizeStaffDirectory(v["staffList"] || null);
   if (!state.selectedName && state.staffDirectory.length) state.selectedName = state.staffDirectory[0].name;
 
-  const [cfg, slotsCfg, conf, monthlySlots] = await Promise.all([
-    apiGet(`config:${mKey}`),
-    apiGet(`slotsConfig`),
-    apiGet(`confirmed:${mKey}`),
-    apiListValues(`slotsConfig:`),
-  ]);
+  const cfg = v[`config:${mKey}`] || null, slotsCfg = v["slotsConfig"] || null;
   state.holidays = (cfg && cfg.holidays) || [];
   state.dateOverrides = (cfg && cfg.dateOverrides) || {};
-  const snap = await resolveSlotsFor(mKey, cfg, monthlySlots);
+  const snap = await resolveSlotsFor(mKey, cfg, l["slotsConfig:"] || {});
   state.weekdaySlots = pickSlots("weekday", snap, slotsCfg);
   state.holidaySlots = pickSlots("holiday", snap, slotsCfg);
   state.holidayEndSlots = pickSlots("holidayEnd", snap, slotsCfg);
-  state.confirmed = conf || {};
+  state.confirmed = v[`confirmed:${mKey}`] || {};
 
-  const punchValues = await apiListValues(`punch:${mKey}`);
+  const punchValues = l[`punch:${mKey}`] || {};
   const punchByDate = {};
   for (const key in punchValues) {
     const parts = key.split(":");
     if (parts.length < 3) continue;
-    const dStr = parts[1];
-    const name = parts.slice(2).join(":");
-    punchByDate[`${dStr}|${name}`] = punchValues[key];
+    punchByDate[`${parts[1]}|${parts.slice(2).join(":")}`] = punchValues[key];
   }
   state.punchByDate = punchByDate;
 
-  const subValues = await apiListValues(`submission:${mKey}:`);
+  const subValues = l[`submission:${mKey}:`] || {};
   const subs = {};
-  for (const key in subValues) {
-    const name = key.split(":").slice(2).join(":");
-    subs[name] = subValues[key];
-  }
+  for (const key in subValues) subs[key.split(":").slice(2).join(":")] = subValues[key];
   state.allSubmissions = subs;
 
-  try { state.budgetStats = computeBudgetStats(await apiListValues(`teijiReport:${mKey}-`)); } catch (e) { state.budgetStats = { byStaff: {}, achieved: 0, total: 0 }; }
+  try { state.budgetStats = computeBudgetStats(l[`teijiReport:${mKey}-`] || {}); } catch (e) { state.budgetStats = { byStaff: {}, achieved: 0, total: 0 }; }
 
   state.loading = false;
-  render();
+  await loadLateSummary();
 }
 
 async function resetLateCounts() {
@@ -417,28 +441,32 @@ async function resetLateCounts() {
   await apiSet("lateCountResetAt", today);
   state.saving = false;
   flash("遅刻回数をリセットしました");
+  if (_mb) _mb.b.values["lateCountResetAt"] = today;
   loadLateSummary();
 }
 
 async function loadLateSummary() {
+  if (!_mb) return;
   state.lateSummaryLoading = true; render();
-  const [slotsCfg, resetAt, monthlySlots] = await Promise.all([apiGet("slotsConfig"), apiGet("lateCountResetAt"), apiListValues("slotsConfig:")]);
-  state.lateCountResetAt = resetAt || null;
+  const { mKey: curKey, b } = _mb;
+  const slotsCfg = b.values["slotsConfig"] || null;
+  const resetAt = b.values["lateCountResetAt"] || null;
+  const monthlySlots = b.lists["slotsConfig:"] || {};
+  state.lateCountResetAt = resetAt;
 
-  const cutoffKey = monthKey(state.cursor); // 遅刻は表示中の月のみ集計(月の切り替えに連動)
-  const punchValues = await apiListValues(`punch:${cutoffKey}`);
+  const cutoffKey = curKey; // 遅刻は表示中の月のみ集計(月の切り替えに連動)
+  const punchValues = b.lists[`punch:${curKey}`] || {};
   const parsed = Object.keys(punchValues).map((k) => {
     const parts = k.split(":");
     if (parts.length < 3) return null;
     return { key: k, dStr: parts[1], name: parts.slice(2).join(":"), mKey: parts[1].slice(0, 7), records: punchValues[k] };
   }).filter((p) => p && p.mKey >= cutoffKey && (!resetAt || p.dStr >= resetAt));
 
-  const months = [...new Set(parsed.map((p) => p.mKey))];
   const monthCache = {};
-  await Promise.all(months.map(async (mKey) => {
-    const [cfg, conf] = await Promise.all([apiGet(`config:${mKey}`), apiGet(`confirmed:${mKey}`)]);
-    monthCache[mKey] = { holidays: (cfg && cfg.holidays) || [], dateOverrides: (cfg && cfg.dateOverrides) || {}, slotsSnapshot: await resolveSlotsFor(mKey, cfg, monthlySlots), confirmed: conf || {} };
-  }));
+  if (parsed.length) {
+    const cfg = b.values[`config:${curKey}`] || null;
+    monthCache[curKey] = { holidays: (cfg && cfg.holidays) || [], dateOverrides: (cfg && cfg.dateOverrides) || {}, slotsSnapshot: await resolveSlotsFor(curKey, cfg, monthlySlots), confirmed: b.values[`confirmed:${curKey}`] || {} };
+  }
 
   function isNonWorkingP(dateObj, mKeyForDate) {
     const dow = dateObj.getDay();
@@ -868,7 +896,7 @@ window.removeEditRecord = removeEditRecord;
 window.addEditRecord = addEditRecord;
 window.saveEditPunch = saveEditPunch;
 
-if (state.authed) { loadMonth(); loadLateSummary(); } else render();
+if (state.authed) { loadMonth(); } else render();
 </script>
 </body>
 </html>
