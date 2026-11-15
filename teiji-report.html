@@ -222,10 +222,10 @@ const state = {
   dateOverrides: {},
   slotsSnapshot: null,
   avgWage: 1200,
-  budgetOne: 0,
-  budgetMulti: 0,
+  monthBudget: 0,
+  confirmedMonth: {},
   reportDirty: true,
-  report: { sales: "", overCount: "0", serviceCount: "0", callOutCount: "0", missingItems: "", staffHours: [] },
+  report: { sales: "", overCount: "0", callOutCount: "0", missingItems: "", staffHours: [] },
   priorStaffHours: [],
   nextMonthHolidays: [],
 };
@@ -258,88 +258,163 @@ function wageOf(name) {
   return state.avgWage;
 }
 
-// ---- 予算(その日の労働時間 × 1時間あたりの金額。1日ずっと1人なら1人の単価、少しでも2人以上の時間があれば2人以上の単価) ----
-function dayShiftInfo() {
-  const d = new Date(state.targetDate + "T00:00:00");
+
+// ---- 月予算 → 日ごとの予算(自動配分) ----
+// 1人の日を1、2人以上が同時に入る日を1.5として月予算を按分する。確定シフトが未登録の日は、枠の想定人数で判定する。
+function dayBudgetWeight(slots, dayConf) {
+  if (!slots || !slots.length) return 0;
+  const hasConf = Object.values(dayConf || {}).some(Boolean);
   const items = [];
-  let hours = 0;
-  for (const s of slotsForDate(d)) {
-    const name = state.confirmed[s.id];
+  for (const s of slots) {
+    const name = hasConf ? (dayConf || {})[s.id] : "slot:" + s.id;
     if (!name) continue;
     const st = hmToMinutes(s.start), en = hmToMinutes(s.end);
-    if (en > st) { items.push({ name, st, en }); hours += (en - st) / 60; }
+    if (en > st) items.push({ name, st, en });
   }
-  // 少しでも2人以上が同時に入っている時間があるか
-  let multi = false;
-  for (let i = 0; i < items.length && !multi; i++) {
+  if (!items.length) return 0;
+  for (let i = 0; i < items.length; i++) {
     for (let j = i + 1; j < items.length; j++) {
-      if (items[i].name !== items[j].name && Math.min(items[i].en, items[j].en) > Math.max(items[i].st, items[j].st)) { multi = true; break; }
+      if (items[i].name !== items[j].name && Math.min(items[i].en, items[j].en) > Math.max(items[i].st, items[j].st)) return 1.5;
     }
   }
-  return { hours: round2(hours), multi };
+  return 1;
 }
-function dayShiftHours() { return dayShiftInfo().hours; }
-function effectiveRate() { const g = dayShiftInfo(); return Number(g.multi ? state.budgetMulti : state.budgetOne) || 0; }
-function effectiveBudget() { return Math.round(dayShiftInfo().hours * effectiveRate()); }
-async function saveBudget(field, value) {
-  const n = Number(value) || 0;
-  if (field === "one") state.budgetOne = n; else state.budgetMulti = n;
-  await apiSet("budgetRates", { one: state.budgetOne, multi: state.budgetMulti });
+function monthBudgetInfo() {
+  const [y, m] = state.targetDate.split("-").map(Number);
+  const weights = {};
+  let sum = 0;
+  const d = new Date(y, m - 1, 1);
+  while (d.getMonth() === m - 1) {
+    const k = dateKey(d);
+    const w = dayBudgetWeight(slotsForDate(d), (state.confirmedMonth || {})[k] || {});
+    weights[k] = w; sum += w;
+    d.setDate(d.getDate() + 1);
+  }
+  const w = weights[state.targetDate] || 0;
+  const mb = Number(state.monthBudget) || 0;
+  return { weight: w, sum, budget: sum > 0 ? Math.round(mb * w / sum) : 0 };
+}
+function effectiveBudget() { return monthBudgetInfo().budget; }
+function plannedDayHours() {
+  // その日の予定労働時間(確定シフトの合計。確定前は枠の合計)
+  const d = new Date(state.targetDate + "T00:00:00");
+  const slots = slotsForDate(d);
+  const dayConf = (state.confirmedMonth || {})[state.targetDate] || {};
+  const hasConf = Object.values(dayConf).some(Boolean);
+  let h = 0;
+  for (const s of slots) {
+    if (hasConf && !dayConf[s.id]) continue;
+    h += Math.max(0, hmToMinutes(s.end) - hmToMinutes(s.start)) / 60;
+  }
+  return round2(h);
+}
+// 予算単価(円/時) = 日予算 ÷ 予定労働時間、売上単価(円/時) = 売上 ÷ 実際の労働時間(一覧の合計)。売上単価が予算単価以上なら達成。
+function unitInfo() {
+  const budget = effectiveBudget();
+  const planned = plannedDayHours();
+  const budgetUnit = planned > 0 ? budget / planned : 0;
+  const hours = totalLaborHours();
+  const sales = Number(state.report.sales) || 0;
+  const salesUnit = hours > 0 ? sales / hours : 0;
+  return { budget, planned, budgetUnit, hours, sales, salesUnit, ok: budgetUnit > 0 && salesUnit >= budgetUnit };
+}
+async function saveMonthBudget(value) {
+  state.monthBudget = Number(value) || 0;
+  await apiSet(`monthBudget:${state.targetDate.slice(0, 7)}`, state.monthBudget);
   render();
-  flash("1時間あたりの予算を保存しました");
+  flash("月予算を保存しました");
 }
 
-function flash(msg) {
-  state.flash = msg;
+function flash(msg, bad) {
+  let t = document.getElementById("toast");
+  if (!t) { t = document.createElement("div"); t.id = "toast"; document.body.appendChild(t); }
+  t.textContent = msg;
+  t.style.cssText = `position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:${bad ? "#B03A3A" : "#2F6F4E"};color:#fff;padding:12px 18px;border-radius:8px;font-weight:700;font-size:14px;z-index:99;max-width:90%;box-shadow:0 4px 12px rgba(0,0,0,.25)`;
+  clearTimeout(t._h);
+  t._h = setTimeout(() => { t.style.display = "none"; }, bad ? 6000 : 1800);
+}
+
+// ---- 読み込み(まとめて1回・前回の表示を即表示してから裏で最新に更新) ----
+async function apiBatch(keys, prefixes) {
+  try {
+    const res = await fetch(`${CONFIG.API_URL}?action=getMany&keys=${encodeURIComponent(JSON.stringify(keys))}&prefixes=${encodeURIComponent(JSON.stringify(prefixes))}`);
+    const data = await res.json();
+    if (data && !data.error && data.values) {
+      const values = {}, lists = {};
+      for (const k in data.values) { try { values[k] = JSON.parse(data.values[k]); } catch (e) {} }
+      for (const pf in data.lists || {}) {
+        lists[pf] = {};
+        for (const it of data.lists[pf]) { try { lists[pf][it.key] = JSON.parse(it.value); } catch (e) {} }
+      }
+      return { values, lists };
+    }
+  } catch (e) { console.error("getMany failed, fallback", e); }
+  // Code.gs が未更新の場合の代替(並列で個別取得)
+  const values = {}, lists = {};
+  await Promise.all([
+    ...keys.map(async (k) => { const v = await apiGet(k); if (v != null) values[k] = v; }),
+    ...prefixes.map(async (pf) => { lists[pf] = await apiListValues(pf); }),
+  ]);
+  return { values, lists };
+}
+function cacheKey(date) { return "teijiBatch:" + date; }
+function readCache(date) { try { const t = localStorage.getItem(cacheKey(date)); return t ? JSON.parse(t) : null; } catch (e) { return null; } }
+function writeCache(date, b) { try { localStorage.setItem(cacheKey(date), JSON.stringify(b)); } catch (e) {} }
+
+async function applyBatch(b, keepReport) {
+  const date = state.targetDate;
+  const mKey = date.slice(0, 7);
+  const nd = new Date(date + "T00:00:00"); nd.setDate(nd.getDate() + 1);
+  const nextMKey = monthKey(nd);
+  const v = b.values || {}, l = b.lists || {};
+  const cfgAll = l["config:"] || {};
+  const cfg = cfgAll["config:" + mKey] || null;
+  const nextCfg = nextMKey !== mKey ? (cfgAll["config:" + nextMKey] || null) : null;
+  _allCfgCache = Promise.resolve(cfgAll);
+  state.staffDirectory = normalizeStaffDirectory(v.staffList);
+  state.holidays = (cfg && cfg.holidays) || [];
+  state.dateOverrides = (cfg && cfg.dateOverrides) || {};
+  state.nextMonthHolidays = (nextCfg && nextCfg.holidays) || [];
+  const slotsCfg = v.slotsConfig || null;
+  state.slotsSnapshot = await resolveSlotsFor(mKey, cfg, l["slotsConfig:"] || {});
+  if (date !== state.targetDate) return;
+  state.weekdaySlots = pickSlots("weekday", state.slotsSnapshot, slotsCfg);
+  state.holidaySlots = pickSlots("holiday", state.slotsSnapshot, slotsCfg);
+  state.holidayEndSlots = pickSlots("holidayEnd", state.slotsSnapshot, slotsCfg);
+  state.confirmedMonth = v["confirmed:" + mKey] || {};
+  state.confirmed = state.confirmedMonth[date] || {};
+  state.avgWage = v.avgWageForReport != null ? v.avgWageForReport : 1200;
+  state.monthBudget = Number(v["monthBudget:" + mKey]) || 0;
+  state.dayReports = { "13": v[`teijiReport:${date}:13`] || null, "15": v[`teijiReport:${date}:15`] || null, close: v[`teijiReport:${date}:close`] || null };
+  if (!keepReport) {
+    if (!state.cpChosen) state.checkpoint = defaultCheckpoint();
+    buildReport();
+  }
+  state.loading = false;
   render();
-  setTimeout(() => { state.flash = ""; render(); }, 2000);
+}
+function defaultCheckpoint() {
+  const d = new Date(state.targetDate + "T00:00:00");
+  const r = state.dayReports || {};
+  if (!r["13"]) return "13";
+  if (!isNonWorkingDay(d)) return "close";
+  return r["15"] ? "close" : "15";
 }
 
 async function loadDayData() {
   const seq = ++loadSeq;
-  state.loading = true; render();
-  const mKey = state.targetDate.slice(0, 7);
-  const _nd = new Date(state.targetDate + "T00:00:00"); _nd.setDate(_nd.getDate() + 1);
-  const nextMKey = monthKey(_nd);
-  const [list, cfg, slotsCfg, conf, avgWage, budgetRates, oldBudgetPerHour, monthlySlots] = await Promise.all([
-    apiGet("staffList"),
-    apiGet(`config:${mKey}`),
-    apiGet("slotsConfig"),
-    apiGet(`confirmed:${mKey}`),
-    apiGet("avgWageForReport"),
-    apiGet("budgetRates"),
-    apiGet("budgetPerHour"),
-    apiListValues("slotsConfig:"),
-  ]);
-  const nextCfg = nextMKey !== mKey ? await apiGet(`config:${nextMKey}`) : null;
-  if (seq !== loadSeq) return; // 日付を素早く切り替えた場合の古い読み込みは捨てる
-  state.nextMonthHolidays = (nextCfg && nextCfg.holidays) || [];
-  state.staffDirectory = normalizeStaffDirectory(list);
-  state.holidays = (cfg && cfg.holidays) || [];
-  state.dateOverrides = (cfg && cfg.dateOverrides) || {};
-  state.slotsSnapshot = await resolveSlotsFor(mKey, cfg, monthlySlots);
-  if (seq !== loadSeq) return;
-  state.weekdaySlots = pickSlots("weekday", state.slotsSnapshot, slotsCfg);
-  state.holidaySlots = pickSlots("holiday", state.slotsSnapshot, slotsCfg);
-  state.holidayEndSlots = pickSlots("holidayEnd", state.slotsSnapshot, slotsCfg);
-  state.confirmed = (conf && conf[state.targetDate]) || {};
-  state.avgWage = avgWage != null ? avgWage : 1200;
-  const oldRate = Number(oldBudgetPerHour) || 0; // 旧: 人数に関係なく1つの単価
-  state.budgetOne = budgetRates ? Number(budgetRates.one) || 0 : oldRate;
-  state.budgetMulti = budgetRates ? Number(budgetRates.multi) || 0 : oldRate;
-  await determineDefaultCheckpoint();
-  if (seq !== loadSeq) return;
-  await loadCheckpointReport();
-}
-
-async function determineDefaultCheckpoint() {
-  const d = new Date(state.targetDate + "T00:00:00");
-  const isWeekendHoliday = isNonWorkingDay(d);
-  const saved13 = await apiGet(`teijiReport:${state.targetDate}:13`);
-  if (!saved13) { state.checkpoint = "13"; return; }
-  if (!isWeekendHoliday) { state.checkpoint = "close"; return; }
-  const saved15 = await apiGet(`teijiReport:${state.targetDate}:15`);
-  state.checkpoint = saved15 ? "close" : "15";
+  const date = state.targetDate;
+  const mKey = date.slice(0, 7);
+  state.touched = false;
+  state.cpChosen = false;
+  const cached = readCache(date);
+  if (cached) { await applyBatch(cached, false); } else { state.loading = true; render(); }
+  const keys = ["staffList", "slotsConfig", "avgWageForReport", `confirmed:${mKey}`, `monthBudget:${mKey}`, `teijiReport:${date}:13`, `teijiReport:${date}:15`, `teijiReport:${date}:close`];
+  const fresh = await apiBatch(keys, ["slotsConfig:", "config:"]);
+  if (seq !== loadSeq || date !== state.targetDate) return; // 日付を素早く切り替えた場合の古い読み込みは捨てる
+  writeCache(date, fresh);
+  // 入力を始めている場合は、入力中の報告を守って、シフトなどの最新データだけ反映する
+  await applyBatch(fresh, state.touched);
 }
 
 function previousCheckpointId(cp) {
@@ -348,20 +423,18 @@ function previousCheckpointId(cp) {
   return null;
 }
 function blankReport() {
-  return { sales: "", overCount: "0", serviceCount: "0", callOutCount: "0", missingItems: "", staffHours: [], shiftBaseline: [] };
+  return { sales: "", overCount: "0", callOutCount: "0", missingItems: "", staffHours: [], shiftBaseline: [] };
 }
-
 function sameHours(a, b) {
   const norm = (l) => { const m = {}; (l || []).forEach((r) => { const h = round2(r.hours); if (r.name && h) m[r.name] = (m[r.name] || 0) + h; }); return m; };
   const x = norm(a), y = norm(b);
   const kx = Object.keys(x), ky = Object.keys(y);
   return kx.length === ky.length && kx.every((k) => Math.abs((y[k] || 0) - x[k]) < 0.005);
 }
-async function loadCheckpointReport() {
-  const seq = ++cpSeq;
-  await loadPriorStaffHours();
-  const savedReport = await apiGet(`teijiReport:${state.targetDate}:${state.checkpoint}`);
-  if (seq !== cpSeq) return;
+function buildReport() {
+  state.priorStaffHours = [];
+  const reports = state.dayReports || {};
+  const savedReport = reports[state.checkpoint];
   state.shiftNotice = "";
   const fresh = staffHoursBreakdown().map((s) => ({ ...s }));
   if (savedReport) {
@@ -377,33 +450,30 @@ async function loadCheckpointReport() {
     }
   } else {
     const prevId = previousCheckpointId(state.checkpoint);
-    const prevReport = prevId ? await apiGet(`teijiReport:${state.targetDate}:${prevId}`) : null;
-    if (seq !== cpSeq) return;
-    const autoStaffHours = fresh.map((s) => ({ ...s })); // この区間(前の報告〜今回)だけを毎回自動計算
+    const prevReport = prevId ? reports[prevId] : null;
     if (prevReport) {
       state.report = {
         sales: prevReport.sales || "",
         overCount: prevReport.overCount || "0",
-        serviceCount: prevReport.serviceCount || "0",
         callOutCount: prevReport.callOutCount || "0",
         missingItems: prevReport.missingItems || "",
-        staffHours: autoStaffHours,
+        staffHours: fresh.map((s) => ({ ...s })),
         shiftBaseline: fresh.map((s) => ({ ...s })),
       };
     } else {
-      state.report = { ...blankReport(), staffHours: autoStaffHours, shiftBaseline: fresh.map((s) => ({ ...s })) };
+      state.report = { ...blankReport(), staffHours: fresh.map((s) => ({ ...s })), shiftBaseline: fresh.map((s) => ({ ...s })) };
     }
     state.reportDirty = true;
   }
-  state.loading = false;
-  render();
 }
 
 function changeDate(v) { state.targetDate = v; loadDayData(); }
 function changeCheckpoint(cp) {
   state.checkpoint = cp;
-  state.loading = true; render();
-  loadCheckpointReport();
+  state.cpChosen = true;
+  state.touched = false;
+  buildReport(); // 取得済みのデータから組み立てるので待ち時間なし
+  render();
 }
 
 function checkpointMinutes() {
@@ -470,7 +540,8 @@ function periodHoursBreakdown(fromMin, toMin) {
   return Object.entries(byName).map(([name, hours]) => ({ name, hours: round2(hours) })).sort((a, b) => b.hours - a.hours);
 }
 function staffHoursBreakdown() {
-  return periodHoursBreakdown(checkpointStartMinutes(), checkpointMinutes());
+  // その日の開始からこの報告タイミングまでの累計
+  return periodHoursBreakdown(0, checkpointMinutes());
 }
 function totalLaborHours() {
   return state.report.staffHours.reduce((sum, s) => sum + (Number(s.hours) || 0), 0);
@@ -495,41 +566,22 @@ function cumulativeStaffList() {
 function cumulativeHoursTotal() { return cumulativeStaffList().reduce((sum, s) => sum + s.hours, 0); }
 function cumulativeCostTotal() { return cumulativeHoursTotal() * state.avgWage; }
 
-async function loadPriorStaffHours() {
-  const d = new Date(state.targetDate + "T00:00:00");
-  const priors = priorCheckpointIds(state.checkpoint, d);
-  const byName = {};
-  for (const cpId of priors) {
-    const rep = await apiGet(`teijiReport:${state.targetDate}:${cpId}`);
-    let list;
-    if (rep && Array.isArray(rep.staffHours)) {
-      list = rep.staffHours; // 保存済みの報告(手動修正を含む)を優先
-    } else {
-      // 前の報告を保存していない場合は、シフトからその区間を計算して累計に含める(抜け防止)
-      const [from, to] = checkpointRange(cpId, d);
-      list = periodHoursBreakdown(from, to);
-    }
-    for (const s of list) {
-      const h = Number(s.hours) || 0;
-      if (!s.name || !h) continue;
-      byName[s.name] = (byName[s.name] || 0) + h;
-    }
-  }
-  state.priorStaffHours = Object.entries(byName).map(([name, hours]) => ({ name, hours }));
-}
 
 
-function updateReportField(field, value) { state.report[field] = value; state.reportDirty = true; render(); }
-function addStaffHourRow() {
+// 入力欄から指を離した直後に画面を作り直すと、同時に押した「保存」ボタンが差し替わって反応しなくなるため、少し遅らせて再描画する
+let _rt = null;
+function scheduleRender() { clearTimeout(_rt); _rt = setTimeout(render, 300); }
+function updateReportField(field, value) { state.report[field] = value; state.reportDirty = true; state.touched = true; scheduleRender(); }
+function addStaffHourRow() { state.touched = true;
   state.report.staffHours.push({ name: "", hours: "" });
   state.reportDirty = true;
   render();
 }
-function removeStaffHourRow(i) { state.report.staffHours.splice(i, 1); state.reportDirty = true; render(); }
-function updateStaffHourRow(i, field, value) {
+function removeStaffHourRow(i) {  state.touched = true;state.report.staffHours.splice(i, 1); state.reportDirty = true; render(); }
+function updateStaffHourRow(i, field, value) { state.touched = true;
   state.report.staffHours[i][field] = value;
   state.reportDirty = true;
-  render();
+  scheduleRender();
 }
 function orphanConfirmedNames() {
   const d = new Date(state.targetDate + "T00:00:00");
@@ -549,7 +601,7 @@ function shiftWarningHtml() {
   }
   return h;
 }
-function refillStaffHoursFromShift() {
+function refillStaffHoursFromShift() { state.touched = true;
   const fresh = staffHoursBreakdown();
   state.report.staffHours = fresh.map((s) => ({ ...s }));
   state.report.shiftBaseline = fresh.map((s) => ({ ...s }));
@@ -562,12 +614,50 @@ async function saveAvgWage(value) {
   state.avgWage = Number(value) || 0;
   await apiSet("avgWageForReport", state.avgWage);
 }
-async function saveReport() {
-  state.saving = true; render();
-  await apiSet(`teijiReport:${state.targetDate}:${state.checkpoint}`, state.report);
-  state.saving = false;
+async function setStrict(key, value) {
+  for (let i = 0; i < 3; i++) {
+    try {
+      const res = await fetch(CONFIG.API_URL, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify({ action: "set", key, value: JSON.stringify(value) }) });
+      const data = await res.json();
+      if (data && data.ok) return true;
+    } catch (e) { console.error("save attempt failed", i, e); }
+    await new Promise((r) => setTimeout(r, 700 * (i + 1)));
+  }
+  return false;
+}
+function saveReport() {
+  if (state.checkpoint === "close") {
+    // クローズ報告: 最終の人件費・予算・売上から予算達成を記録(シフト提出サイト・従業員管理サイトで集計に使う)
+    const sales = Number(state.report.sales) || 0;
+    const budget = effectiveBudget();
+    if (sales > 0 && budget > 0) {
+      const u = unitInfo();
+      state.report.final = {
+        sales, budget, hours: round2(totalLaborHours()), labor: Math.round(totalLaborCost()),
+        plannedHours: u.planned, budgetUnit: Math.round(u.budgetUnit), salesUnit: Math.round(u.salesUnit),
+        achievedByAmount: sales >= budget,
+        achieved: u.ok, // 予算単価(円/時)に対して、売上単価(円/時)が上回ったか
+      };
+    } else {
+      delete state.report.final;
+    }
+  }
+  // 先に画面を「保存済み」にして、すぐコピーできるようにする。送信は裏で行い、失敗したら元に戻して知らせる。
+  const date = state.targetDate, cp = state.checkpoint;
+  const key = `teijiReport:${date}:${cp}`;
+  const payload = JSON.parse(JSON.stringify(state.report));
+  state.dayReports = { ...(state.dayReports || {}), [cp]: payload };
+  const c = readCache(date);
+  if (c) { c.values = c.values || {}; c.values[key] = payload; writeCache(date, c); }
   state.reportDirty = false;
-  flash("報告内容を保存しました");
+  state.touched = false;
+  render();
+  flash("保存しました（コピーできます）");
+  setStrict(key, payload).then((ok) => {
+    if (ok) return;
+    if (state.targetDate === date && state.checkpoint === cp) { state.reportDirty = true; render(); }
+    flash("⚠ 保存に失敗しました。通信を確認してもう一度「保存」を押してください", true);
+  });
 }
 
 function generateReportText() {
@@ -595,8 +685,6 @@ function generateReportText() {
   lines.push(
     `人件費率：${rate.toFixed(1)}%`,
     `事前断り無し20分オーバー　${state.report.overCount || 0}件`,
-    `サービス提供　${state.report.serviceCount || 0}件`,
-    `（ドリンク）`,
     `累計呼び込み回数(77db以上)　${state.report.callOutCount || 0}回`,
     `欠品商品`
   );
@@ -621,6 +709,7 @@ function copyReportText() {
 }
 
 function render() {
+  clearTimeout(_rt);
   const root = document.getElementById("root");
 
   if (state.loading) {
@@ -645,7 +734,6 @@ function render() {
   root.innerHTML = `
     <header><h1 class="disp">📋 定時報告作成</h1></header>
     <div class="wrap">
-      ${state.flash ? `<div class="note" style="color:var(--green);font-weight:700">${esc(state.flash)}</div>` : ""}
       <div class="card">
         <label class="field-label">対象日</label>
         <input type="date" value="${state.targetDate}" onchange="changeDate(this.value)" />
@@ -659,7 +747,7 @@ function render() {
         <div style="font-size:14px;font-weight:700;margin-bottom:8px">📝 報告内容の入力</div>
         ${state.checkpoint !== "13" ? `<p class="note" style="margin-top:0">前の時間帯（${state.checkpoint === "15" ? "13時" : "15時"}）の内容を引き継いでいます。必要に応じて書き換えてください。</p>` : ""}
 
-        <div class="note" style="font-weight:700;color:var(--ink)">誰が何時間入っているか（前回の報告からこの時点までの分・手動で追加・削除・変更できます）</div>
+        <div class="note" style="font-weight:700;color:var(--ink)">誰が何時間入っているか（その日の開始からこの時点までの累計・手動で追加・削除・変更できます）</div>
         ${shiftWarningHtml()}
         ${staffRows}
         <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">
@@ -674,10 +762,6 @@ function render() {
           <div>
             <label class="field-label">事前断り無し20分オーバー（件）</label>
             <input type="number" value="${state.report.overCount}" onchange="updateReportField('overCount', this.value)" />
-          </div>
-          <div>
-            <label class="field-label">サービス提供（ドリンク・件）</label>
-            <input type="number" value="${state.report.serviceCount}" onchange="updateReportField('serviceCount', this.value)" />
           </div>
         </div>
         <div class="field-row">
@@ -700,32 +784,31 @@ function render() {
 
       <div class="card">
         <div style="font-size:14px;font-weight:700;margin-bottom:4px">🎯 予算</div>
-        <div class="field-row">
-          <div>
-            <label class="field-label">1日ずっと1人の日の予算（円/時）</label>
-            <input type="number" value="${state.budgetOne}" onchange="saveBudget('one', this.value)" />
-          </div>
-          <div>
-            <label class="field-label">2人以上が入る時間がある日の予算（円/時）</label>
-            <input type="number" value="${state.budgetMulti}" onchange="saveBudget('multi', this.value)" />
-          </div>
-        </div>
-        <p class="note">予算 ＝ その日の労働時間（確定シフトの合計）× 1時間あたりの予算。1日ずっと1人だけの日は「1人」の単価、少しでも2人以上が同時に入る時間がある日は「2人以上」の単価を、その日全体に使います。一度入力すれば、変更するまで保存されます。</p>
-        ${(() => { const g = dayShiftInfo(); return `<p class="note" style="font-weight:700;color:var(--ink)">この日：${g.multi ? "2人以上の時間あり" : "ずっと1人"} → 労働時間 ${fmtH(g.hours)}時間 × ${fmtYen(effectiveRate())} ＝ ${fmtYen(effectiveBudget())}</p>`; })()}
         <div class="summary-row">
-          <div class="summary-item"><div class="label">適用中の予算</div><div class="value">${fmtYen(effectiveBudget())}</div></div>
-          <div class="summary-item"><div class="label">現在の売上</div><div class="value">${fmtYen(Number(state.report.sales) || 0)}</div></div>
-          <div class="summary-item"><div class="label">達成率</div><div class="value">${effectiveBudget() > 0 ? (((Number(state.report.sales) || 0) / effectiveBudget()) * 100).toFixed(1) + "%" : "-"}</div></div>
+          <div class="summary-item"><div class="label">${state.targetDate.slice(0, 7).replace("-", "年")}月の月予算</div><div class="value">${state.monthBudget ? fmtYen(state.monthBudget) : "未設定"}</div></div>
         </div>
+        <p class="note">月予算は「シフト管理」サイトの管理者画面（💰 月予算）で入力します。1日ごとの予算は、1人の日を「1」、2人以上が同時に入る日を「1.5」として自動で按分されます。確定シフトが未登録の日は、シフト枠の想定人数で計算します。</p>
+        ${(() => { const g = monthBudgetInfo(); return `<p class="note" style="font-weight:700;color:var(--ink)">この日：${g.weight === 1.5 ? "2人以上の日（1.5）" : g.weight === 1 ? "1人の日（1）" : "シフトなし"} ／ 月の合計 ${g.sum}日分 → 日予算 ${fmtYen(g.budget)}</p>`; })()}
+        <div class="summary-row">
+          <div class="summary-item"><div class="label">適用中の予算（日予算）</div><div class="value">${fmtYen(effectiveBudget())}</div></div>
+          <div class="summary-item"><div class="label">現在の売上</div><div class="value">${fmtYen(Number(state.report.sales) || 0)}</div></div>
+          <div class="summary-item"><div class="label">達成率（金額）</div><div class="value">${effectiveBudget() > 0 ? (((Number(state.report.sales) || 0) / effectiveBudget()) * 100).toFixed(1) + "%" : "-"}</div></div>
+        </div>
+        ${(() => { const u = unitInfo(); return `
+        <div class="summary-row">
+          <div class="summary-item"><div class="label">予算単価（日予算 ÷ 予定${fmtH(u.planned)}h）</div><div class="value">${u.budgetUnit > 0 ? fmtYen(u.budgetUnit) + "/h" : "-"}</div></div>
+          <div class="summary-item"><div class="label">売上単価（売上 ÷ 労働${fmtH(u.hours)}h）</div><div class="value">${u.salesUnit > 0 ? fmtYen(u.salesUnit) + "/h" : "-"}</div></div>
+        </div>
+        <p class="note" style="font-weight:700">${u.budgetUnit > 0 && u.sales > 0 ? (u.ok ? "✅ 予算単価を達成" : "❌ 予算単価に未達") + `（売上単価 ${fmtYen(u.salesUnit)}/h ${u.ok ? "≧" : "＜"} 予算単価 ${fmtYen(u.budgetUnit)}/h）` + (state.checkpoint === "close" ? "　※クローズ報告を保存すると達成回数に記録されます" : "　※途中経過の参考です") : "月予算と売上を入力すると、予算単価に対する達成が表示されます。"}</p>`; })()}
       </div>
 
       <div class="card">
-        <div style="font-size:14px;font-weight:700;margin-bottom:4px">💰 人件費（この区間のみ）</div>
+        <div style="font-size:14px;font-weight:700;margin-bottom:4px">💰 人件費（その日の累計）</div>
         <div class="summary-row">
           <div class="summary-item"><div class="label">人件費</div><div class="value">${fmtYen(labor)}</div></div>
           <div class="summary-item"><div class="label">労働時間</div><div class="value">${fmtH(hoursTotal)}h</div></div>
         </div>
-        <p class="note">上の「報告内容の入力」欄にある「誰が何時間入っているか」一覧の合計（時間 × 平均時給）です。前回の報告からこの時点までの分だけです。</p>
+        <p class="note">上の「報告内容の入力」欄にある「誰が何時間入っているか」一覧の合計（時間 × 平均時給）です。開店からこの時点までの累計で、LINE報告文にもこの数字が使われます。</p>
         <div class="field-row" style="margin-top:14px">
           <div>
             <label class="field-label">人件費計算用 平均時給（円）</label>
@@ -733,16 +816,6 @@ function render() {
           </div>
         </div>
         <p class="note">この報告での人件費はすべて、この平均時給で概算計算します（スタッフごとの実際の時給は使いません）。</p>
-      </div>
-
-      <div class="card" style="background:#FBF8F2">
-        <div style="font-size:14px;font-weight:700;margin-bottom:4px">📊 累計（LINE報告に使われる数字）</div>
-        <div class="summary-row">
-          <div class="summary-item"><div class="label">累計人件費</div><div class="value">${fmtYen(cumulativeCostTotal())}</div></div>
-          <div class="summary-item"><div class="label">累計労働時間</div><div class="value">${fmtH(cumulativeHoursTotal())}h</div></div>
-        </div>
-        ${cumulativeStaffList().length ? `<table style="margin-top:8px"><tbody>${cumulativeStaffList().map((s) => `<tr><td style="padding:3px 8px 3px 0">${esc(s.name)}</td><td style="padding:3px 0;text-align:right;font-weight:700">${fmtH(s.hours)}時間</td></tr>`).join("")}</tbody></table>` : ""}
-        <p class="note">開店（または前回の報告）からこの時点までの合計です。実際にLINEへ送る報告文には、こちらの累計の数字が使われます。</p>
       </div>
     </div>
   `;
@@ -758,7 +831,7 @@ window.refillStaffHoursFromShift = refillStaffHoursFromShift;
 window.saveAvgWage = saveAvgWage;
 window.saveReport = saveReport;
 window.copyReportText = copyReportText;
-window.saveBudget = saveBudget;
+window.saveMonthBudget = saveMonthBudget;
 
 (async function boot() {
   await loadDayData();
