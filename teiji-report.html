@@ -327,12 +327,21 @@ function effectiveBudget() {
   const c = budgetCalc();
   return Math.round(c.hours * c.rate);
 }
+// ---- レジ締め後売上 ----
+//  クローズ報告の「レジ締め後売上」は今日の売上に合算し、翌日の売上からは差し引く(レジの数字には翌日分として入るため)
+function afterCloseToday() { return state.checkpoint === "close" ? (Number(state.report.afterCloseSales) || 0) : 0; }
+function afterClosePrev() { return Number(state.prevAfterCloseSales) || 0; }
+function effSales() {
+  const v = (Number(state.report.sales) || 0) + afterCloseToday() - afterClosePrev();
+  return v > 0 ? v : 0;
+}
+function photoCheckNeeded() { return afterCloseToday() > 0 && !state.report.afterCloseSent; }
 // 売上単価(円/時) = 売上 ÷ 実際の労働時間(一覧の合計)。予算単価以上なら予算達成。
 function unitInfo() {
   const g = budgetCalc();
   const budget = effectiveBudget();
   const hours = totalLaborHours();
-  const sales = Number(state.report.sales) || 0;
+  const sales = effSales();
   const salesUnit = hours > 0 ? sales / hours : 0;
   return { budget, planned: g.planned, budgetUnit: g.rate, hours, sales, salesUnit, ok: g.rate > 0 && salesUnit >= g.rate };
 }
@@ -375,6 +384,7 @@ async function apiBatch(keys, prefixes) {
   ]);
   return { values, lists };
 }
+function prevDateKey(date) { const d = new Date(date + "T00:00:00"); d.setDate(d.getDate() - 1); return dateKey(d); }
 function cacheKey(date) { return "teijiBatch:" + date; }
 function readCache(date) { try { const t = localStorage.getItem(cacheKey(date)); return t ? JSON.parse(t) : null; } catch (e) { return null; } }
 function writeCache(date, b) { try { localStorage.setItem(cacheKey(date), JSON.stringify(b)); } catch (e) {} }
@@ -403,6 +413,7 @@ async function applyBatch(b, keepReport) {
   state.confirmed = state.confirmedMonth[date] || {};
   state.avgWage = v.avgWageForReport != null ? v.avgWageForReport : 1200;
   state.monthBudget = Number(v["monthBudget:" + mKey]) || 0;
+  { const pd = new Date(date + "T00:00:00"); pd.setDate(pd.getDate() - 1); const pr = v[`teijiReport:${dateKey(pd)}:close`]; state.prevAfterCloseSales = Number(pr && pr.afterCloseSales) || 0; }
   state.dayReports = { "13": v[`teijiReport:${date}:13`] || null, "15": v[`teijiReport:${date}:15`] || null, close: v[`teijiReport:${date}:close`] || null };
   if (!keepReport) {
     if (!state.cpChosen) state.checkpoint = defaultCheckpoint();
@@ -427,7 +438,7 @@ async function loadDayData() {
   state.cpChosen = false;
   const cached = readCache(date);
   if (cached) { await applyBatch(cached, false); } else { state.loading = true; render(); }
-  const keys = ["staffList", "slotsConfig", "avgWageForReport", `confirmed:${mKey}`, `monthBudget:${mKey}`, `teijiReport:${date}:13`, `teijiReport:${date}:15`, `teijiReport:${date}:close`];
+  const keys = ["staffList", "slotsConfig", "avgWageForReport", `confirmed:${mKey}`, `monthBudget:${mKey}`, `teijiReport:${date}:13`, `teijiReport:${date}:15`, `teijiReport:${date}:close`, `teijiReport:${prevDateKey(date)}:close`];
   const fresh = await apiBatch(keys, ["slotsConfig:", "config:"]);
   if (seq !== loadSeq || date !== state.targetDate) return; // 日付を素早く切り替えた場合の古い読み込みは捨てる
   writeCache(date, fresh);
@@ -589,7 +600,8 @@ function cumulativeCostTotal() { return cumulativeHoursTotal() * state.avgWage; 
 // 入力欄から指を離した直後に画面を作り直すと、同時に押した「保存」ボタンが差し替わって反応しなくなるため、少し遅らせて再描画する
 let _rt = null;
 function scheduleRender() { clearTimeout(_rt); _rt = setTimeout(render, 300); }
-function updateReportField(field, value) { state.report[field] = value; state.reportDirty = true; state.touched = true; scheduleRender(); }
+function setAfterCloseSent(v) { state.report.afterCloseSent = !!v; state.reportDirty = true; state.touched = true; render(); }
+function updateReportField(field, value) { state.report[field] = value; if (field === "afterCloseSales" && !(Number(value) > 0)) state.report.afterCloseSent = false; state.reportDirty = true; state.touched = true; scheduleRender(); }
 function addStaffHourRow() { state.touched = true;
   state.report.staffHours.push({ name: "", hours: "" });
   state.reportDirty = true;
@@ -644,9 +656,10 @@ async function setStrict(key, value) {
   return false;
 }
 function saveReport() {
+  if (photoCheckNeeded()) { flash("レジ締め後売上の写真を送信したら、チェックを入れてください", true); return; }
   if (state.checkpoint === "close") {
     // クローズ報告: 最終の人件費・予算・売上から予算達成を記録(シフト提出サイト・従業員管理サイトで集計に使う)
-    const sales = Number(state.report.sales) || 0;
+    const sales = effSales();
     const budget = effectiveBudget();
     if (sales > 0 && budget > 0) {
       const u = unitInfo();
@@ -681,7 +694,7 @@ function saveReport() {
 function generateReportText() {
   const cpInfo = CHECKPOINTS.find((c) => c.id === state.checkpoint);
   const title = state.checkpoint === "close" ? "クローズ定時報告致します。" : `${cpInfo.label}定時報告致します。`;
-  const sales = Number(state.report.sales) || 0;
+  const sales = effSales();
   const labor = cumulativeCostTotal();
   const hours = cumulativeHoursTotal();
   const rate = sales > 0 ? (labor / sales) * 100 : 0;
@@ -690,7 +703,7 @@ function generateReportText() {
   const staffList = cumulativeStaffList();
   const lines = [
     title,
-    `売上（税抜）：${fmtNum(sales)}`,
+    `売上（税抜）：${fmtNum(sales)}${afterCloseToday() > 0 ? `（レジ締め後売上 ${fmtNum(afterCloseToday())}円を含む）` : ""}`,
     `予算：${fmtNum(budget)}（${fmtH(budgetCalc().hours)}h×${fmtNum(Math.round(budgetCalc().rate))}円）`,
     `予算達成率：${achieveRate.toFixed(1)}%`,
     `人件費：${fmtNum(labor)}`,
@@ -711,6 +724,7 @@ function generateReportText() {
 }
 
 function copyReportText() {
+  if (photoCheckNeeded()) { flash("レジ締め後売上の写真を送信したら、チェックを入れてください", true); return; }
   if (state.reportDirty) {
     flash("先に「この内容を保存」を押してください");
     return;
@@ -776,6 +790,18 @@ function render() {
 
         <label class="field-label" style="margin-top:14px">売上（税抜・円）</label>
         <input type="number" value="${state.report.sales}" onchange="updateReportField('sales', this.value)" />
+        ${afterClosePrev() > 0 ? `<p class="note" style="color:#8a4b00">前日のレジ締め後売上 ${fmtYen(afterClosePrev())} を、この日の売上から差し引いています（上の入力欄にはレジの数字をそのまま入れてください）。</p>` : ""}
+        ${state.checkpoint === "close" ? `
+        <label class="field-label" style="margin-top:10px">レジ締め後売上（円）</label>
+        <input type="number" value="${state.report.afterCloseSales || ""}" placeholder="なければ空欄" onchange="updateReportField('afterCloseSales', this.value)" />
+        <p class="note">入力した金額は、今日の売上に合算されます。翌日の売上からは差し引かれます。</p>
+        ${afterCloseToday() > 0 ? `
+        <label style="display:flex;align-items:center;gap:8px;margin-top:6px;padding:10px;border-radius:8px;background:${state.report.afterCloseSent ? "#e6f4ea" : "#fff3e0"};border:1px solid ${state.report.afterCloseSent ? "#9fd0ae" : "#f0b36b"};font-weight:700">
+          <input type="checkbox" style="width:20px;height:20px" ${state.report.afterCloseSent ? "checked" : ""} onchange="setAfterCloseSent(this.checked)" />
+          レジ締め後売上の写真を送信した
+        </label>
+        ${state.report.afterCloseSent ? "" : `<p class="note" style="color:#9b1c1c;font-weight:700">⚠ チェックするまで、保存・コピーはできません。</p>`}
+        <p class="note" style="font-weight:700">今日の売上（合算後）：${fmtYen(effSales())}</p>` : ""}` : ""}
         <div class="field-row">
           <div>
             <label class="field-label">事前断り無し20分オーバー（件）</label>
@@ -809,8 +835,8 @@ function render() {
         ${(() => { const g = budgetCalc(); return `<p class="note" style="font-weight:700;color:var(--ink)">この日：${g.mult === 1.5 ? "2人以上（単価×1.5）" : g.mult === 1 ? (g.weight === 1.5 ? "人数が減ったため1人の単価" : "1人") : "シフトなし"} ／ ${fmtH(g.hours)}h × ${fmtYen(g.rate)} ＝ 日予算 ${fmtYen(effectiveBudget())}</p>`; })()}
         <div class="summary-row">
           <div class="summary-item"><div class="label">適用中の予算（日予算）</div><div class="value">${fmtYen(effectiveBudget())}</div></div>
-          <div class="summary-item"><div class="label">現在の売上</div><div class="value">${fmtYen(Number(state.report.sales) || 0)}</div></div>
-          <div class="summary-item"><div class="label">達成率（金額）</div><div class="value">${effectiveBudget() > 0 ? (((Number(state.report.sales) || 0) / effectiveBudget()) * 100).toFixed(1) + "%" : "-"}</div></div>
+          <div class="summary-item"><div class="label">現在の売上</div><div class="value">${fmtYen(effSales())}</div></div>
+          <div class="summary-item"><div class="label">達成率（金額）</div><div class="value">${effectiveBudget() > 0 ? ((effSales() / effectiveBudget()) * 100).toFixed(1) + "%" : "-"}</div></div>
         </div>
         ${(() => { const u = unitInfo(); return `
         <div class="summary-row">
@@ -849,6 +875,7 @@ window.refillStaffHoursFromShift = refillStaffHoursFromShift;
 window.saveAvgWage = saveAvgWage;
 window.saveReport = saveReport;
 window.copyReportText = copyReportText;
+window.setAfterCloseSent = setAfterCloseSent;
 window.saveMonthBudget = saveMonthBudget;
 
 (async function boot() {
