@@ -678,7 +678,7 @@ function generateReportText() {
   const lines = [
     title,
     `売上（税抜）：${fmtNum(sales)}`,
-    `予算：${fmtNum(budget)}`,
+    `予算：${fmtNum(budget)}（その日の予定労働時間${fmtH(monthBudgetInfo().hours)}時間×1時間あたり${fmtNum(Math.round(monthBudgetInfo().rate))}円）`,
     `予算達成率：${achieveRate.toFixed(1)}%`,
     `人件費：${fmtNum(labor)}`,
     `労働時間：${fmtH(hours)}時間`,
