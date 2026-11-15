@@ -310,18 +310,31 @@ function monthBudgetInfo() {
   const base = mb > 0 && sum > 0 ? mb / sum : 0;
   return { weight: wT, hours: hT, sum, baseRate: base, rate: base * wT };
 }
-function effectiveBudget() {
+// 日予算の計算に使う「労働時間」と「予算単価」(定時報告の内容を反映)
+//  ・労働時間 ＝ その日の予定労働時間 ＋ (報告の人数・時間の修正による増減)
+//  ・単価 ＝ 2人の日でも、報告上の人数が2人未満(減った/0hの人がいる)なら1人の単価を使う
+function budgetCalc() {
   const g = monthBudgetInfo();
-  return Math.round(g.hours * g.rate); // 13時・15時・クローズとも予定の労働時間で計算
+  let hours = g.hours + (cumulativeHoursTotal() - calculatedLaborHours());
+  if (!(hours > 0)) hours = 0;
+  hours = round2(hours);
+  const present = cumulativeStaffList().length; // 時間が0より大きいスタッフの人数
+  let mult = g.weight === 1.5 ? (present >= 2 ? 1.5 : 1) : (g.weight === 1 ? 1 : (present >= 2 ? 1.5 : present === 1 ? 1 : 0));
+  const rate = g.baseRate * mult;
+  return { hours, rate, mult, planned: g.hours, weight: g.weight, baseRate: g.baseRate };
+}
+function effectiveBudget() {
+  const c = budgetCalc();
+  return Math.round(c.hours * c.rate);
 }
 // 売上単価(円/時) = 売上 ÷ 実際の労働時間(一覧の合計)。予算単価以上なら予算達成。
 function unitInfo() {
-  const g = monthBudgetInfo();
+  const g = budgetCalc();
   const budget = effectiveBudget();
   const hours = totalLaborHours();
   const sales = Number(state.report.sales) || 0;
   const salesUnit = hours > 0 ? sales / hours : 0;
-  return { budget, planned: g.hours, budgetUnit: g.rate, hours, sales, salesUnit, ok: g.rate > 0 && salesUnit >= g.rate };
+  return { budget, planned: g.planned, budgetUnit: g.rate, hours, sales, salesUnit, ok: g.rate > 0 && salesUnit >= g.rate };
 }
 async function saveMonthBudget(value) {
   state.monthBudget = Number(value) || 0;
@@ -678,7 +691,7 @@ function generateReportText() {
   const lines = [
     title,
     `売上（税抜）：${fmtNum(sales)}`,
-    `予算：${fmtNum(budget)}（その日の予定労働時間${fmtH(monthBudgetInfo().hours)}時間×1時間あたり${fmtNum(Math.round(monthBudgetInfo().rate))}円）`,
+    `予算：${fmtNum(budget)}（${fmtH(budgetCalc().hours)}h×${fmtNum(Math.round(budgetCalc().rate))}円）`,
     `予算達成率：${achieveRate.toFixed(1)}%`,
     `人件費：${fmtNum(labor)}`,
     `労働時間：${fmtH(hours)}時間`,
@@ -793,7 +806,7 @@ function render() {
           <div class="summary-item"><div class="label">${state.targetDate.slice(0, 7).replace("-", "年")}月の月予算</div><div class="value">${state.monthBudget ? fmtYen(state.monthBudget) : "未設定"}</div></div>
         </div>
         <p class="note">月予算は「シフト管理」サイトの管理者画面（💰 月予算）で入力します。日予算 ＝ 労働時間 × 1時間あたりの予算（予算単価）です。予算単価は、月予算が月の労働時間の合計にちょうど配分されるように自動で決まり、2人以上が同時に入る日は1人の日の1.5倍になります。</p>
-        ${(() => { const g = monthBudgetInfo(); const hrs = g.hours; return `<p class="note" style="font-weight:700;color:var(--ink)">この日：${g.weight === 1.5 ? "2人以上の日（単価×1.5）" : g.weight === 1 ? "1人の日" : "シフトなし"} ／ 予算単価 ${fmtYen(g.rate)}/h × 労働時間 ${fmtH(hrs)}h（予定） ＝ 日予算 ${fmtYen(effectiveBudget())}</p>`; })()}
+        ${(() => { const g = budgetCalc(); return `<p class="note" style="font-weight:700;color:var(--ink)">この日：${g.mult === 1.5 ? "2人以上（単価×1.5）" : g.mult === 1 ? (g.weight === 1.5 ? "人数が減ったため1人の単価" : "1人") : "シフトなし"} ／ ${fmtH(g.hours)}h × ${fmtYen(g.rate)} ＝ 日予算 ${fmtYen(effectiveBudget())}</p>`; })()}
         <div class="summary-row">
           <div class="summary-item"><div class="label">適用中の予算（日予算）</div><div class="value">${fmtYen(effectiveBudget())}</div></div>
           <div class="summary-item"><div class="label">現在の売上</div><div class="value">${fmtYen(Number(state.report.sales) || 0)}</div></div>
