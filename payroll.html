@@ -133,15 +133,47 @@ function calcHoursForPunches(records) {
   return grossMin > 0 ? grossMin / 60 : 0;
 }
 
+// まとめて1回で取得(Code.gsのgetMany)。未対応なら並列の個別取得に切り替える
+async function apiBatch(keys, prefixes) {
+  try {
+    const res = await fetch(`${CONFIG.API_URL}?action=getMany&keys=${encodeURIComponent(JSON.stringify(keys))}&prefixes=${encodeURIComponent(JSON.stringify(prefixes))}`);
+    const data = await res.json();
+    if (data && !data.error && data.values) {
+      const values = {}, lists = {};
+      for (const k in data.values) { try { values[k] = JSON.parse(data.values[k]); } catch (e) {} }
+      for (const pf in data.lists || {}) {
+        lists[pf] = {};
+        for (const it of data.lists[pf]) { try { lists[pf][it.key] = JSON.parse(it.value); } catch (e) {} }
+      }
+      return { values, lists };
+    }
+  } catch (e) { console.error("getMany failed, fallback", e); }
+  const values = {}, lists = {};
+  await Promise.all([
+    ...keys.map(async (k) => { const v = await apiGet(k); if (v != null) values[k] = v; }),
+    ...prefixes.map(async (pf) => { lists[pf] = await apiListValues(pf); }),
+  ]);
+  return { values, lists };
+}
+// 過去6か月より前のデータは別シートに退避済みのため、それより前の月へは移動できない
+function toastMsg(msg) {
+  let t = document.getElementById("toast");
+  if (!t) { t = document.createElement("div"); t.id = "toast"; document.body.appendChild(t); }
+  t.textContent = msg; t.style.display = "block";
+  t.style.cssText = "position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#B03A3A;color:#fff;padding:12px 18px;border-radius:8px;font-weight:700;font-size:14px;z-index:99;max-width:90%";
+  clearTimeout(t._h); t._h = setTimeout(() => { t.style.display = "none"; }, 3000);
+}
+function monthTooOld(d) {
+  const n = new Date();
+  const min = new Date(n.getFullYear(), n.getMonth() - 6, 1);
+  return d < min;
+}
 async function loadPayroll() {
   state.loading = true; render();
   const mKey = monthKey(state.cursor);
-  const [list, punchValues, overrides, bonuses] = await Promise.all([
-    apiGet("staffList"),
-    apiListValues(`punch:${mKey}`),
-    apiGet(`payrollWageOverride:${mKey}`),
-    apiGet(`payrollBonus:${mKey}`),
-  ]);
+  const pb = await apiBatch(["staffList", `payrollWageOverride:${mKey}`, `payrollBonus:${mKey}`], [`punch:${mKey}`]);
+  const list = pb.values["staffList"] || null, punchValues = pb.lists[`punch:${mKey}`] || {};
+  const overrides = pb.values[`payrollWageOverride:${mKey}`] || null, bonuses = pb.values[`payrollBonus:${mKey}`] || null;
   state.staffDirectory = normalizeStaffDirectory(list);
   state.wageOverrides = overrides || {};
   state.bonuses = bonuses || {};
@@ -280,7 +312,9 @@ function flashLogin(msg) {
   if (el) el.textContent = msg;
 }
 function changeMonth(delta) {
-  state.cursor = new Date(state.cursor.getFullYear(), state.cursor.getMonth() + delta, 1);
+  const nc = new Date(state.cursor.getFullYear(), state.cursor.getMonth() + delta, 1);
+  if (monthTooOld(nc)) { toastMsg("6か月より前のデータは退避済みのため表示できません"); return; }
+  state.cursor = nc;
   state.rangeStart = "";
   state.rangeEnd = "";
   loadPayroll();
