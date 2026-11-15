@@ -1388,6 +1388,8 @@ function renderReportTab() {
   let rows = "";
   let monthTotal = 0;
   const showCost = state.route === "admin"; // スタッフ画面では人件費を非表示
+  const mbd = monthBudgetDays();
+  const bRow = {}; mbd.rows.forEach((r) => { bRow[r.k] = r; });
   for (const d of dates) {
     const dKey = dateKey(d);
     const weekend = isWeekendType(d);
@@ -1399,11 +1401,14 @@ function renderReportTab() {
     let cell = "";
     if (!assignedAny) cell = `<span style="color:var(--rose)">未確定</span>`;
     else cell = slots.filter((s) => conf[s.id]).map((s) => `<div>${esc(s.label)}（${s.start}〜${s.end}）：${esc(conf[s.id])}</div>`).join("");
-    rows += `<tr><td>${dateLabelHtml(d, weekend)}</td><td>${cell}</td>${showCost ? `<td>${cost > 0 ? fmtYen(cost) : ""}</td>` : ""}</tr>`;
+    const br = bRow[dKey];
+    const bcell = br && br.budget > 0 ? `<div>${fmtYen(br.budget)}</div><div style="font-size:10px;color:var(--muted)">${br.h}h×${fmtYen(br.rate)}</div>` : "";
+    rows += `<tr><td>${dateLabelHtml(d, weekend)}</td><td>${cell}</td><td style="text-align:right">${bcell}</td>${showCost ? `<td>${cost > 0 ? fmtYen(cost) : ""}</td>` : ""}</tr>`;
   }
   return `<div class="card">
     <div style="font-size:14px;font-weight:700;margin-bottom:12px">👥 確定シフト一覧</div>
-    <table><thead><tr><th>日付</th><th>担当</th>${showCost ? "<th>人件費</th>" : ""}</tr></thead><tbody>${rows}</tbody></table>
+    <table><thead><tr><th>日付</th><th>担当</th><th style="text-align:right">日予算</th>${showCost ? "<th>人件費</th>" : ""}</tr></thead><tbody>${rows}</tbody></table>
+    ${mbd.mb > 0 ? `<p style="font-size:11px;color:var(--muted2);margin-top:8px">日予算 ＝ その日の予定労働時間 × 1時間あたりの予算（1人の日 ${fmtYen(mbd.base)}/h、2人以上の日 ${fmtYen(mbd.base * 1.5)}/h）</p>` : `<p style="font-size:11px;color:var(--muted2);margin-top:8px">月予算が未設定です</p>`}
     ${showCost ? `<div class="grand-total">今月の人件費合計：${fmtYen(monthTotal)}</div>` : ""}
   </div>`;
 }
