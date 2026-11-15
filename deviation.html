@@ -342,8 +342,27 @@ async function submitResetCode() {
 function changeMonth(delta) {
   state.cursor = new Date(state.cursor.getFullYear(), state.cursor.getMonth() + delta, 1);
   loadMonth();
+  loadLateSummary();
 }
 function setTab(t) { state.tab = t; render(); }
+
+
+// 予算達成の集計: クローズ報告に保存された final(売上・予算・達成可否)を月ごとに数える
+function computeBudgetStats(values) {
+  const byStaff = {};
+  let achieved = 0, total = 0;
+  for (const key in values) {
+    if (!key.endsWith(":close")) continue;
+    const r = values[key];
+    if (!r || !r.final || !(Number(r.final.budget) > 0)) continue;
+    total++;
+    const ok = !!r.final.achieved;
+    if (ok) achieved++;
+    const names = new Set((r.staffHours || []).filter((s) => s.name && Number(s.hours) > 0).map((s) => s.name));
+    names.forEach((n) => { const o = byStaff[n] || (byStaff[n] = { achieved: 0, worked: 0 }); o.worked++; if (ok) o.achieved++; });
+  }
+  return { byStaff, achieved, total };
+}
 
 async function loadMonth() {
   state.loading = true; render();
@@ -385,6 +404,8 @@ async function loadMonth() {
   }
   state.allSubmissions = subs;
 
+  try { state.budgetStats = computeBudgetStats(await apiListValues(`teijiReport:${mKey}-`)); } catch (e) { state.budgetStats = { byStaff: {}, achieved: 0, total: 0 }; }
+
   state.loading = false;
   render();
 }
@@ -404,10 +425,8 @@ async function loadLateSummary() {
   const [slotsCfg, resetAt, monthlySlots] = await Promise.all([apiGet("slotsConfig"), apiGet("lateCountResetAt"), apiListValues("slotsConfig:")]);
   state.lateCountResetAt = resetAt || null;
 
-  const punchValues = await apiListValues("punch:");
-  const now0 = new Date();
-  const cutoffMonth = new Date(now0.getFullYear(), now0.getMonth() - 5, 1);
-  const cutoffKey = monthKey(cutoffMonth);
+  const cutoffKey = monthKey(state.cursor); // 遅刻は表示中の月のみ集計(月の切り替えに連動)
+  const punchValues = await apiListValues(`punch:${cutoffKey}`);
   const parsed = Object.keys(punchValues).map((k) => {
     const parts = k.split(":");
     if (parts.length < 3) return null;
@@ -468,24 +487,17 @@ async function loadLateSummary() {
     if (actualMin - scheduledStartMin > CONFIG.LATE_GRACE_MINUTES) lateEvents.push({ name: p.name, dateStr: p.dStr });
   }
 
-  const now = new Date();
-  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-  const q3Start = new Date(now.getFullYear(), now.getMonth() - 2, 1);
-  const half1Start = new Date(now.getFullYear(), now.getMonth() - 5, 1);
+  const monthStart = new Date(state.cursor.getFullYear(), state.cursor.getMonth(), 1);
   const summary = {};
   for (const s of state.staffDirectory) summary[s.name] = { month: 0, q: 0, half: 0, attMonth: 0, attQ: 0, attHalf: 0 };
   for (const ev of attendanceEvents) {
     if (!summary[ev.name]) summary[ev.name] = { month: 0, q: 0, half: 0, attMonth: 0, attQ: 0, attHalf: 0 };
     const d = new Date(ev.dateStr + "T00:00:00");
-    if (d >= half1Start) summary[ev.name].attHalf++;
-    if (d >= q3Start) summary[ev.name].attQ++;
     if (d >= monthStart) summary[ev.name].attMonth++;
   }
   for (const ev of lateEvents) {
     if (!summary[ev.name]) summary[ev.name] = { month: 0, q: 0, half: 0, attMonth: 0, attQ: 0, attHalf: 0 };
     const d = new Date(ev.dateStr + "T00:00:00");
-    if (d >= half1Start) summary[ev.name].half++;
-    if (d >= q3Start) summary[ev.name].q++;
     if (d >= monthStart) summary[ev.name].month++;
   }
   state.lateSummary = summary;
@@ -650,6 +662,7 @@ function renderDetailTab() {
   if (!state.isNewStaff && state.selectedName) {
     const stats = computeMonthStatsForStaff(state.selectedName);
     const late = (state.lateSummary && state.lateSummary[state.selectedName]) || { month: 0, q: 0, half: 0, attMonth: 0, attQ: 0, attHalf: 0 };
+    const bs = ((state.budgetStats || {}).byStaff || {})[state.selectedName] || { achieved: 0, worked: 0 };
     html += `
       <div class="card">
         <div style="font-size:14px;font-weight:700;margin-bottom:8px">📊 ${state.cursor.getFullYear()}年${state.cursor.getMonth() + 1}月のまとめ</div>
@@ -660,11 +673,14 @@ function renderDetailTab() {
           <div class="summary-item"><div class="label">乖離率</div><div class="value">${stats.scheduledHours > 0 ? (stats.rate >= 0 ? "+" : "") + stats.rate.toFixed(0) + "%" : "-"}</div></div>
         </div>
         <div class="summary-row">
-          <div class="summary-item"><div class="label">遅刻(当月)</div><div class="value">${late.month}回 <span style="font-size:12px;color:var(--muted)">(${lateRate(late.month, late.attMonth)})</span></div></div>
-          <div class="summary-item"><div class="label">遅刻(過去3ヶ月)</div><div class="value">${late.q}回 <span style="font-size:12px;color:var(--muted)">(${lateRate(late.q, late.attQ)})</span></div></div>
-          <div class="summary-item"><div class="label">遅刻(過去半年)</div><div class="value">${late.half}回 <span style="font-size:12px;color:var(--muted)">(${lateRate(late.half, late.attHalf)})</span></div></div>
+          <div class="summary-item"><div class="label">予算達成(入った日)</div><div class="value">${bs.achieved}回 <span style="font-size:12px;color:var(--muted)">/ ${bs.worked}日</span></div></div>
+          <div class="summary-item"><div class="label">予算達成(お店全体)</div><div class="value">${(state.budgetStats || {}).achieved || 0}回 <span style="font-size:12px;color:var(--muted)">/ ${(state.budgetStats || {}).total || 0}日</span></div></div>
+        </div>
+        <div class="summary-row">
+          <div class="summary-item"><div class="label">遅刻</div><div class="value">${late.month}回 <span style="font-size:12px;color:var(--muted)">(${lateRate(late.month, late.attMonth)})</span></div></div>
         </div>
         ${state.lateSummaryLoading ? `<p class="note">遅刻回数を集計中…</p>` : ""}
+        <p class="note">予算達成は、定時報告のクローズ報告で、売上単価（売上÷労働時間）が予算単価（日予算÷予定労働時間）以上だった日の数です（「入った日」はそのスタッフがクローズ報告の出勤者に入っていた日）。</p>
       </div>
     `;
 
@@ -745,9 +761,8 @@ function renderCompareTab() {
       <td class="num">${stats.scheduledHours.toFixed(1)}h</td>
       <td class="num">${stats.actualHours.toFixed(1)}h</td>
       <td class="num">${stats.scheduledHours > 0 ? (stats.rate >= 0 ? "+" : "") + stats.rate.toFixed(0) + "%" : "-"}</td>
+      <td class="num">${(((state.budgetStats || {}).byStaff || {})[s.name] || { achieved: 0, worked: 0 }).achieved}回/${(((state.budgetStats || {}).byStaff || {})[s.name] || { achieved: 0, worked: 0 }).worked}日</td>
       <td class="num">${late.month}回（${lateRate(late.month, late.attMonth)}）</td>
-      <td class="num">${late.q}回（${lateRate(late.q, late.attQ)}）</td>
-      <td class="num">${late.half}回（${lateRate(late.half, late.attHalf)}）</td>
     </tr>`;
   }
   return `<div class="card">
@@ -756,9 +771,9 @@ function renderCompareTab() {
       <table>
         <thead><tr>
           <th>名前</th><th class="num">時給</th><th class="num">希望/シフトイン</th><th class="num">予定時間</th>
-          <th class="num">実績時間</th><th class="num">乖離率</th><th class="num">遅刻(当月)</th><th class="num">遅刻(3ヶ月)</th><th class="num">遅刻(半年)</th>
+          <th class="num">実績時間</th><th class="num">乖離率</th><th class="num">予算達成(入った日)</th><th class="num">遅刻</th>
         </tr></thead>
-        <tbody>${rows || `<tr><td colspan="9" style="text-align:center;color:var(--muted2)">スタッフが登録されていません</td></tr>`}</tbody>
+        <tbody>${rows || `<tr><td colspan="8" style="text-align:center;color:var(--muted2)">スタッフが登録されていません</td></tr>`}</tbody>
       </table>
     </div>
     ${state.lateSummaryLoading ? `<p class="note">遅刻回数を集計中…</p>` : ""}
