@@ -547,6 +547,15 @@ async function applyMonthBatch(b, mKey) {
   state.holidaySlots = pickSlots("holiday", state.slotsSnapshot, slotsCfg);
   state.holidayEndSlots = pickSlots("holidayEnd", state.slotsSnapshot, slotsCfg);
   state.confirmed = v["confirmed:" + mKey] || {};
+  // クローズ報告の最終結果(売上・予算・達成可否)を日ごとに
+  const finals = {};
+  const reps = l[`teijiReport:${mKey}-`] || {};
+  for (const k in reps) {
+    if (!k.endsWith(":close")) continue;
+    const r = reps[k];
+    if (r && r.final && Number(r.final.budget) > 0) finals[k.split(":")[1]] = r.final;
+  }
+  state.closeFinals = finals;
   state.allSubmissions = subs;
   state.mySubmission = state.staffName && subs[state.staffName] ? subs[state.staffName] : {};
 }
@@ -561,7 +570,7 @@ async function loadMonthData() {
   } else { state.loading = true; render(); }
   const b = await apiBatch(
     [`config:${mKey}`, `slotsConfig`, `confirmed:${mKey}`, `staffList`, `monthBudget:${mKey}`, `adminPassword`],
-    [`submission:${mKey}:`, `slotsConfig:`]
+    [`submission:${mKey}:`, `slotsConfig:`, `teijiReport:${mKey}-`]
   );
   if (seq !== _monthLoadSeq) return; // 月が切り替わった・再読込済み
   writeCacheB(ck, { values: { ...b.values, adminPassword: undefined }, lists: b.lists });
@@ -1431,6 +1440,9 @@ function renderReportTab() {
   const showCost = state.route === "admin"; // スタッフ画面では人件費を非表示
   const mbd = monthBudgetDays();
   const bRow = {}; mbd.rows.forEach((r) => { bRow[r.k] = r; });
+  const finals = state.closeFinals || {};
+  const fKeys = Object.keys(finals);
+  const fOk = fKeys.filter((k) => finals[k].achieved).length;
   for (const d of dates) {
     const dKey = dateKey(d);
     const weekend = isWeekendType(d);
@@ -1444,11 +1456,14 @@ function renderReportTab() {
     else cell = slots.filter((s) => conf[s.id]).map((s) => `<div>${esc(s.label)}（${s.start}〜${s.end}）：${esc(conf[s.id])}</div>`).join("");
     const br = bRow[dKey];
     const bcell = br && br.budget > 0 ? `<div>${fmtYen(br.budget)}</div><div style="font-size:10px;color:var(--muted)">${br.h}h×${fmtYen(br.rate)}</div>` : "";
-    rows += `<tr><td>${dateLabelHtml(d, weekend)}</td><td>${cell}</td><td style="text-align:right">${bcell}</td>${showCost ? `<td>${cost > 0 ? fmtYen(cost) : ""}</td>` : ""}</tr>`;
+    const fin = finals[dKey];
+    const fcell = fin ? `<div style="font-weight:700;color:${fin.achieved ? "var(--green, #2F6F4E)" : "var(--rose)"}">${fin.achieved ? "✅ 達成" : "❌ 未達"}</div><div style="font-size:10px;color:var(--muted)">売上 ${fmtYen(fin.sales)}</div>` : "";
+    rows += `<tr><td>${dateLabelHtml(d, weekend)}</td><td>${cell}</td><td style="text-align:right">${bcell}</td><td style="text-align:center">${fcell}</td>${showCost ? `<td>${cost > 0 ? fmtYen(cost) : ""}</td>` : ""}</tr>`;
   }
   return `<div class="card">
     <div style="font-size:14px;font-weight:700;margin-bottom:12px">👥 確定シフト一覧</div>
-    <table><thead><tr><th>日付</th><th>担当</th><th style="text-align:right">日予算</th>${showCost ? "<th>人件費</th>" : ""}</tr></thead><tbody>${rows}</tbody></table>
+    <div style="margin-bottom:12px;padding:10px 12px;border-radius:8px;background:rgba(47,111,78,.08);font-size:14px;font-weight:700">💰 今月の予算達成：${fOk}回 <span style="font-weight:400;font-size:12px;color:var(--muted)">／ クローズ報告 ${fKeys.length}日分（実際の労働時間×予算単価を売上が上回った日）</span></div>
+    <table><thead><tr><th>日付</th><th>担当</th><th style="text-align:right">日予算</th><th>予算達成</th>${showCost ? "<th>人件費</th>" : ""}</tr></thead><tbody>${rows}</tbody></table>
     ${mbd.mb > 0 ? `<p style="font-size:11px;color:var(--muted2);margin-top:8px">日予算 ＝ その日の予定労働時間 × 1時間あたりの予算（1人の日 ${fmtYen(mbd.base)}/h、2人以上の日 ${fmtYen(mbd.base * 1.5)}/h）</p>` : `<p style="font-size:11px;color:var(--muted2);margin-top:8px">月予算が未設定です</p>`}
     ${showCost ? `<div class="grand-total">今月の人件費合計：${fmtYen(monthTotal)}</div>` : ""}
   </div>`;
