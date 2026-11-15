@@ -1397,7 +1397,7 @@ function renderMyRecordTab() {
       <td>${r.isLate ? `<span style="color:var(--rose);font-weight:700">遅刻 ${r.lateMinutes}分</span>` : ""}</td>
     </tr>`;
   }
-  const offLabels = ["今月", "先月", "2か月前", "3か月前"];
+  const offLabels = ["今月", "先月", "2か月前", "3か月前", "4か月前", "5か月前", "6か月前"];
   const monthSwitch = `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">${offLabels.map((l, i) =>
     `<button class="submit-btn" style="padding:6px 12px;font-size:12px;${(state.myRecordOffset || 0) === i ? "" : "background:transparent;color:var(--muted);border:1px solid var(--muted2)"}" data-action="setMyRecordMonth" data-offset="${i}">${l}</button>`).join("")}</div>`;
   return `
@@ -1560,7 +1560,7 @@ function render() {
 
   const tabs = state.route === "admin"
     ? [{ id: "admin", label: "🔒 シフト確定" }, { id: "report", label: "📋 確定シフト表" }]
-    : [{ id: "input", label: "📨 希望シフト入力" }, { id: "report", label: "📋 確定シフト表" }, { id: "myrecord", label: "🕐 自分の記録" }];
+    : [{ id: "input", label: "📨 希望シフト入力" }, { id: "report", label: "📋 確定シフト表" }, { id: "myrecord", label: "🕐 自分の記録（遅刻・予算達成）" }];
 
   let body;
   if (state.loading) {
