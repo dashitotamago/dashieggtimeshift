@@ -3,120 +3,60 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>シフト管理板</title>
+<title>従業員管理</title>
 <style>
   :root {
-    --bg: #F6F3EC;
-    --ink: #22282F;
-    --border: #DED7C6;
-    --green: #2F6F4E;
-    --orange: #B5541E;
-    --orange-bg: #FBE9D6;
-    --rose: #C1666B;
-    --rose-bg: #F3E3E3;
-    --muted: #7A756A;
-    --muted2: #9A968C;
+    --bg: #F6F3EC; --ink: #22282F; --border: #DED7C6;
+    --green: #2F6F4E; --orange: #B5541E; --rose: #C1666B; --blue: #3A6EA5;
+    --muted: #7A756A; --muted2: #9A968C; --orange-bg: #FBE9D6;
   }
   * { box-sizing: border-box; }
-  body {
-    margin: 0;
-    background: var(--bg);
-    color: var(--ink);
-    font-family: "Hiragino Kaku Gothic ProN", "Yu Gothic", "Meiryo", sans-serif;
-  }
+  body { margin: 0; background: var(--bg); color: var(--ink); font-family: "Hiragino Kaku Gothic ProN", "Yu Gothic", "Meiryo", sans-serif; }
   .disp { font-family: "Hiragino Mincho ProN", "Yu Mincho", serif; font-weight: 700; }
-  header { background: var(--ink); border-bottom: 1px solid var(--border); }
-  .wrap { max-width: 900px; margin: 0 auto; padding: 0 20px; }
-  .header-row { display: flex; align-items: center; justify-content: space-between; padding: 20px 0; }
-  .logo-badge {
-    width: 36px; height: 36px; border-radius: 4px; background: var(--orange);
-    display: flex; align-items: center; justify-content: center; color: #F6F3EC; font-size: 18px;
-  }
-  h1 { margin: 0; font-size: 20px; color: #F6F3EC; }
-  h1 .tag { font-size: 12px; font-weight: 400; margin-left: 8px; color: #E0A458; }
-  .sub { margin: 2px 0 0; font-size: 12px; color: #B8B2A2; }
-  .flash { font-size: 12px; color: #E0A458; }
-  .switch-link { font-size: 12px; color: #B8B2A2; text-decoration: underline; cursor: pointer; }
-  .month-nav { display: flex; align-items: center; justify-content: space-between; padding: 16px 0; }
-  .month-nav button { background: none; border: none; font-size: 20px; cursor: pointer; padding: 8px 14px; border-radius: 999px; }
-  .month-nav button:hover { background: rgba(0,0,0,0.05); }
-  .month-label { font-size: 18px; font-weight: 700; }
-  .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin-bottom: 24px; }
-  .tab-btn {
-    background: none; border: none; border-bottom: 2px solid transparent; cursor: pointer;
-    padding: 10px 16px; font-size: 14px; font-weight: 500; color: var(--muted); margin-bottom: -1px;
-  }
+  header { background: var(--ink); padding: 20px; }
+  header h1 { margin: 0; color: #F6F3EC; font-size: 20px; text-align: center; }
+  .wrap { max-width: 860px; margin: 0 auto; padding: 20px; }
+  .card { background: #fff; border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin-top: 16px; }
+  input[type=password], input[type=text], input[type=number] { width: 100%; border: 1px solid var(--border); border-radius: 6px; padding: 10px; font-size: 15px; }
+  select { width: 100%; border: 1px solid var(--border); border-radius: 6px; padding: 10px; font-size: 15px; }
+  .submit-btn { width: 100%; padding: 14px; margin-top: 12px; background: var(--green); color: #fff; border: none; border-radius: 6px; font-size: 16px; font-weight: 700; cursor: pointer; }
+  .save-btn { background: var(--ink); color: #fff; border: none; border-radius: 6px; padding: 10px 18px; font-size: 14px; font-weight: 700; cursor: pointer; }
+  .add-btn { background: var(--orange); color: #fff; border: none; border-radius: 4px; padding: 8px 14px; font-size: 13px; cursor: pointer; }
+  .remove-btn { background: none; border: 1px solid var(--rose); color: var(--rose); border-radius: 4px; padding: 8px 14px; font-size: 13px; cursor: pointer; }
+  .remove-btn-plain { background: none; border: none; color: var(--blue); text-decoration: underline; font-size: 12px; cursor: pointer; padding: 0; }
+  .month-nav { display: flex; align-items: center; justify-content: space-between; padding: 12px 0; }
+  .month-nav button { background: none; border: none; font-size: 20px; cursor: pointer; padding: 6px 14px; border-radius: 999px; }
+  .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin-top: 8px; }
+  .tab-btn { background: none; border: none; border-bottom: 2px solid transparent; cursor: pointer; padding: 10px 16px; font-size: 14px; font-weight: 500; color: var(--muted); margin-bottom: -1px; }
   .tab-btn.active { color: var(--green); border-color: var(--green); }
-  .card { background: #fff; border: 1px solid var(--border); border-radius: 6px; padding: 16px; }
-  .card + .card { margin-top: 12px; }
-  .grid { display: grid; grid-template-columns: 1fr; gap: 12px; }
-  @media (min-width: 640px) { .grid { grid-template-columns: 1fr 1fr; } }
-  .date-label { display: flex; align-items: baseline; gap: 6px; }
-  .date-num { font-weight: 700; font-size: 14px; }
-  .date-dow { font-size: 12px; }
-  .badge { font-size: 10px; padding: 2px 6px; border-radius: 999px; margin-left: 4px; }
-  .badge-weekend { background: var(--orange-bg); color: var(--orange); }
-  .badge-locked { background: var(--rose-bg); color: var(--rose); display: inline-flex; align-items: center; gap: 3px; }
-  .slot-btn {
-    display: flex; align-items: center; justify-content: space-between; padding: 8px 12px;
-    border-radius: 4px; font-size: 14px; border: 1px solid var(--border); color: var(--muted);
-    background: #fff; cursor: pointer; margin-top: 8px; width: 100%;
-  }
-  .slot-btn:first-of-type { margin-top: 12px; }
-  .slot-btn.checked { background: var(--orange-bg); border-color: var(--orange); color: var(--orange); }
-  input[type=text], input[type=number], input[type=password], input[type=time] {
-    width: 100%; border: 1px solid var(--border); border-radius: 4px; padding: 8px 12px; font-size: 14px;
-  }
-  label.field-label { font-size: 12px; font-weight: 500; color: var(--muted); display: block; margin-bottom: 4px; }
-  .submit-btn, .save-btn, .add-btn {
-    margin-top: 20px; display: inline-flex; align-items: center; gap: 6px; padding: 12px 24px;
-    border-radius: 4px; font-size: 14px; font-weight: 500; border: none; cursor: pointer; color: #fff;
-  }
-  .submit-btn { background: var(--green); }
-  .save-btn { background: var(--ink); }
-  .add-btn { background: var(--orange); padding: 8px 14px; font-size: 13px; margin-top: 8px; }
-  .holiday-chip {
-    font-size: 12px; padding: 4px 8px; border-radius: 4px; border: 1px solid var(--border);
-    color: var(--muted2); background: #fff; cursor: pointer; margin: 2px;
-  }
-  .holiday-chip.active { background: var(--orange); border-color: var(--orange); color: #fff; }
-  .assign-row { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
-  .assign-row:first-child { margin-top: 0; }
-  .assign-label { font-size: 12px; color: var(--muted); width: 130px; flex-shrink: 0; }
-  select { flex: 1; border: 1px solid var(--border); border-radius: 4px; padding: 6px 8px; font-size: 14px; }
-  table { width: 100%; font-size: 14px; border-collapse: collapse; }
-  th { text-align: left; color: var(--muted); font-weight: 500; padding: 6px 8px 6px 0; }
-  td { padding: 8px 8px 8px 0; border-top: 1px solid #EFEAE0; vertical-align: top; }
-  .footer-note { max-width: 900px; margin: 0 auto; padding: 8px 20px 40px; font-size: 12px; color: var(--muted2); }
-  .center-msg { text-align: center; padding: 100px 20px; color: var(--muted); }
+  table { width: 100%; font-size: 13px; border-collapse: collapse; }
+  th { text-align: left; color: var(--muted); font-weight: 500; padding: 8px 6px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  td { padding: 8px 6px; border-bottom: 1px solid #EFEAE0; vertical-align: top; }
+  td.num, th.num { text-align: right; }
+  .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 700; }
+  .pill-green { background: #E4EFE8; color: var(--green); }
+  .pill-red { background: #F3E3E3; color: var(--rose); }
+  .pill-blue { background: #E3EAF3; color: var(--blue); }
+  .center-msg { text-align: center; padding: 80px 24px; color: var(--muted); }
+  .note { font-size: 12px; color: var(--muted2); margin-top: 8px; }
+  .summary-row { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 8px; }
+  .summary-item { flex: 1; min-width: 120px; }
+  .summary-item .label { font-size: 11px; color: var(--muted); }
+  .summary-item .value { font-size: 18px; font-weight: 700; }
+  .field-label { font-size: 12px; font-weight: 500; color: var(--muted); display: block; margin-bottom: 4px; }
+  .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
   .slot-editor-row { display: flex; gap: 8px; align-items: center; margin-top: 8px; flex-wrap: wrap; }
-  .slot-editor-row input[type=text] { flex: 1; min-width: 100px; }
-  .slot-editor-row input[type=time] { width: 110px; }
-  .remove-btn {
-    background: none; border: 1px solid var(--rose); color: var(--rose); border-radius: 4px;
-    padding: 6px 10px; font-size: 12px; cursor: pointer; flex-shrink: 0;
-  }
-  .staff-row { display: flex; gap: 8px; align-items: center; margin-top: 8px; flex-wrap: wrap; }
-  .staff-row input[type=text], .staff-row input[type=number] { flex: 1; min-width: 90px; }
-  .section-title { font-size: 13px; font-weight: 700; margin: 16px 0 4px; color: var(--muted); }
-  .section-title:first-child { margin-top: 0; }
-  .cost-total { font-size: 13px; color: var(--green); font-weight: 700; margin-top: 4px; }
-  .grand-total { font-size: 16px; font-weight: 700; margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--border); }
-  .welcome-row { display: flex; align-items: center; justify-content: space-between; font-size: 13px; color: var(--muted); margin-bottom: 12px; }
-  .text-link { color: var(--muted); text-decoration: underline; cursor: pointer; background: none; border: none; font-size: 12px; padding: 0; }
+  .table-scroll { overflow-x: auto; }
 </style>
 </head>
 <body>
 <div id="root"></div>
-
 <script>
-// ==== ここにGoogle Apps ScriptのウェブアプリURLを貼り付けてください ====
 const CONFIG = {
   API_URL: "https://script.google.com/macros/s/AKfycbzOSPmWXfZTvMLiOa8bucfhU3UgJdUqxucc7NWDCq2WMRHsjHqPFRDm34F8S3og8i_b/exec",
   ADMIN_PASSWORD: "0310",
   LATE_GRACE_MINUTES: 1,
 };
-
 const WEEKDAY_JP = ["日", "月", "火", "水", "木", "金", "土"];
 const DEFAULT_WEEKDAY_SLOTS = [{ id: "w1", label: "ワンオペ", start: "09:00", end: "18:00" }];
 const DEFAULT_HOLIDAY_SLOTS = [
@@ -127,244 +67,7 @@ const DEFAULT_HOLIDAY_END_SLOTS = [
   { id: "h1", label: "10:00〜15:00", start: "10:00", end: "15:00" },
   { id: "h2", label: "11:30〜16:30", start: "11:30", end: "16:30" },
 ];
-
-function monthKey(d) { return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`; }
-function dateKey(d) { return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; }
-function daysInMonth(year, month) {
-  const arr = [];
-  const d = new Date(year, month, 1);
-  while (d.getMonth() === month) { arr.push(new Date(d)); d.setDate(d.getDate() + 1); }
-  return arr;
-}
-function periodInfoFor(d) {
-  const day = d.getDate(), y = d.getFullYear(), m = d.getMonth();
-  if (day <= 15) {
-    const deadline = new Date(y, m - 1, 20, 23, 59, 59);
-    return { deadline, label: `${deadline.getMonth() + 1}/${deadline.getDate()}` };
-  }
-  const deadline = new Date(y, m, 5, 23, 59, 59);
-  return { deadline, label: `${deadline.getMonth() + 1}/${deadline.getDate()}` };
-}
-function isLocked(d) { return new Date() > periodInfoFor(d).deadline; }
-function effectiveLocked(d) {
-  if (state.unlockedDates.includes(dateKey(d))) return false;
-  return isLocked(d);
-}
-function readRoute() { return window.location.hash.replace("#", "").toLowerCase() === "admin" ? "admin" : "staff"; }
-function esc(s) { return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
-function uid() { return "slot_" + Math.random().toString(36).slice(2, 9); }
-function hmToMinutes(hm) {
-  const [h, m] = String(hm).split(":").map(Number);
-  return (h || 0) * 60 + (m || 0);
-}
-function slotHours(slot) {
-  let mins = hmToMinutes(slot.end) - hmToMinutes(slot.start);
-  if (mins < 0) mins += 24 * 60;
-  return mins / 60;
-}
-function fmtYen(n) { return "¥" + Math.round(n).toLocaleString("ja-JP"); }
-function hmDiffMinutes(aIso, bIso) { return (new Date(bIso) - new Date(aIso)) / 60000; }
-function calcHoursForPunches(records) {
-  const sorted = [...records].sort((a, b) => new Date(a.time) - new Date(b.time));
-  const inRec = sorted.find((r) => r.type === "in");
-  const outRecs = sorted.filter((r) => r.type === "out");
-  const outRec = outRecs.length ? outRecs[outRecs.length - 1] : null;
-  if (!inRec || !outRec) return 0;
-  const grossMin = hmDiffMinutes(inRec.time, outRec.time);
-  return grossMin > 0 ? grossMin / 60 : 0;
-}
-function firstInTime(records) {
-  const sorted = records.filter((r) => r.type === "in").sort((a, b) => new Date(a.time) - new Date(b.time));
-  return sorted.length ? new Date(sorted[0].time) : null;
-}
-
-async function apiGet(key) {
-  try {
-    const res = await fetch(`${CONFIG.API_URL}?action=get&key=${encodeURIComponent(key)}`);
-    const data = await res.json();
-    if (!data || data.value == null || data.value === "") return null;
-    return JSON.parse(data.value);
-  } catch (e) { console.error("apiGet failed", key, e); return null; }
-}
-async function apiSet(key, value) {
-  try {
-    await fetch(CONFIG.API_URL, {
-      method: "POST",
-      headers: { "Content-Type": "text/plain;charset=utf-8" },
-      body: JSON.stringify({ action: "set", key, value: JSON.stringify(value) }),
-    });
-    try { Object.keys(localStorage).filter((k) => k.indexOf("shiftB:") === 0).forEach((k) => localStorage.removeItem(k)); } catch (e) {}
-    return true;
-  } catch (e) { console.error("apiSet failed", key, e); return false; }
-}
-async function apiList(prefix) {
-  try {
-    const res = await fetch(`${CONFIG.API_URL}?action=list&prefix=${encodeURIComponent(prefix)}`);
-    const data = await res.json();
-    return (data && data.keys) || [];
-  } catch (e) { console.error("apiList failed", prefix, e); return []; }
-}
-async function apiListValues(prefix) {
-  try {
-    const res = await fetch(`${CONFIG.API_URL}?action=listValues&prefix=${encodeURIComponent(prefix)}`);
-    const data = await res.json();
-    const out = {};
-    for (const item of (data && data.items) || []) {
-      if (item.value == null || item.value === "") continue;
-      try { out[item.key] = JSON.parse(item.value); } catch (e) { /* skip malformed */ }
-    }
-    return out;
-  } catch (e) { console.error("apiListValues failed", prefix, e); return {}; }
-}
-// まとめて1回で取得(Code.gsのgetMany)。未対応なら並列の個別取得に切り替える
-async function apiBatch(keys, prefixes) {
-  try {
-    const res = await fetch(`${CONFIG.API_URL}?action=getMany&keys=${encodeURIComponent(JSON.stringify(keys))}&prefixes=${encodeURIComponent(JSON.stringify(prefixes))}`);
-    const data = await res.json();
-    if (data && !data.error && data.values) {
-      const values = {}, lists = {};
-      for (const k in data.values) { try { values[k] = JSON.parse(data.values[k]); } catch (e) {} }
-      for (const pf in data.lists || {}) {
-        lists[pf] = {};
-        for (const it of data.lists[pf]) { try { lists[pf][it.key] = JSON.parse(it.value); } catch (e) {} }
-      }
-      return { values, lists };
-    }
-  } catch (e) { console.error("getMany failed, fallback", e); }
-  const values = {}, lists = {};
-  await Promise.all([
-    ...keys.map(async (k) => { const v = await apiGet(k); if (v != null) values[k] = v; }),
-    ...prefixes.map(async (pf) => { lists[pf] = await apiListValues(pf); }),
-  ]);
-  return { values, lists };
-}
-function readCacheB(k) { try { const t = localStorage.getItem("shiftB:" + k); return t ? JSON.parse(t) : null; } catch (e) { return null; } }
-function writeCacheB(k, b) { try { localStorage.setItem("shiftB:" + k, JSON.stringify(b)); } catch (e) {} }
-async function apiAction(payload) {
-  try {
-    const res = await fetch(CONFIG.API_URL, {
-      method: "POST",
-      headers: { "Content-Type": "text/plain;charset=utf-8" },
-      body: JSON.stringify(payload),
-    });
-    return await res.json();
-  } catch (e) { console.error("apiAction failed", payload, e); return { error: String(e) }; }
-}
-
-// ---- app state ----
-const state = {
-  cursor: (() => { const n = new Date(); return new Date(n.getFullYear(), n.getMonth(), 1); })(),
-  route: readRoute(),
-  tab: readRoute() === "admin" ? "admin" : "input",
-  loading: true,
-  saving: false,
-  flash: "",
-  adminAuthed: sessionStorage.getItem("adminAuthed") === "1",
-  adminPasswordValue: null, // fetched from backend; null = not yet loaded
-  showForgotPassword: false,
-  forgotStep: "request", // "request" | "verify"
-  forgotFlash: "",
-  showAdminPasswordChange: false,
-  staffAuthed: sessionStorage.getItem("staffAuthed") === "1",
-  staffName: sessionStorage.getItem("staffAuthedName") || "",
-  showPasswordChange: false,
-  submitSuccess: false,
-  holidays: [],
-  unlockedDates: [],
-  dateOverrides: {}, // dateKey -> custom slots array for that single day
-  slotsSnapshot: null, // { weekday, weekend } frozen at the moment this month's shifts were confirmed
-  editingDateSlots: null, // dateKey currently being edited, or null
-  editingSlotsList: [],
-  weekdaySlots: DEFAULT_WEEKDAY_SLOTS,
-  holidaySlots: DEFAULT_HOLIDAY_SLOTS,
-  holidayEndSlots: DEFAULT_HOLIDAY_END_SLOTS,
-  mySubmission: {},
-  allSubmissions: {},
-  staffDirectory: [], // [{name, wage, password}]
-  confirmed: {},
-  myRecord: null, // { rows, hoursTotal, wageTotal, lateCount }
-  myRecordLoading: false,
-  myRecordOffset: 0, // 0=今月, 1=先月, 2=2か月前, 3=3か月前
-  myRecordError: false,
-};
-
-// ---- 日本の祝日を自動計算 ----
-const _holidayCache = {};
-function nthMonday(year, month, n) {
-  const d = new Date(year, month - 1, 1);
-  let count = 0;
-  while (true) {
-    if (d.getDay() === 1) { count++; if (count === n) return new Date(d); }
-    d.setDate(d.getDate() + 1);
-  }
-}
-function vernalEquinox(year) {
-  return Math.floor(20.8431 + 0.242194 * (year - 1980) - Math.floor((year - 1980) / 4));
-}
-function autumnalEquinox(year) {
-  return Math.floor(23.2488 + 0.242194 * (year - 1980) - Math.floor((year - 1980) / 4));
-}
-function getJapanHolidays(year) {
-  if (_holidayCache[year]) return _holidayCache[year];
-  const list = []; // { date: Date, name: string }
-  const add = (m, d, name) => list.push({ date: new Date(year, m - 1, d), name });
-  add(1, 1, "元日");
-  list.push({ date: nthMonday(year, 1, 2), name: "成人の日" });
-  add(2, 11, "建国記念の日");
-  add(2, 23, "天皇誕生日");
-  add(3, vernalEquinox(year), "春分の日");
-  add(4, 29, "昭和の日");
-  add(5, 3, "憲法記念日");
-  add(5, 4, "みどりの日");
-  add(5, 5, "こどもの日");
-  list.push({ date: nthMonday(year, 7, 3), name: "海の日" });
-  add(8, 11, "山の日");
-  list.push({ date: nthMonday(year, 9, 3), name: "敬老の日" });
-  add(9, autumnalEquinox(year), "秋分の日");
-  list.push({ date: nthMonday(year, 10, 2), name: "スポーツの日" });
-  add(11, 3, "文化の日");
-  add(11, 23, "勤労感謝の日");
-
-  const byKey = {};
-  for (const h of list) byKey[dateKey(h.date)] = h.name;
-
-  // 振替休日: 日曜の祝日の次の平日(まだ祝日でない日)を休日にする
-  for (const h of [...list]) {
-    if (h.date.getDay() === 0) {
-      let sub = new Date(h.date);
-      do { sub.setDate(sub.getDate() + 1); } while (byKey[dateKey(sub)]);
-      byKey[dateKey(sub)] = "振替休日";
-    }
-  }
-  // 国民の休日: 祝日と祝日に挟まれた平日(日曜でない)も休日にする
-  const sortedKeys = Object.keys(byKey).sort();
-  for (const k of sortedKeys) {
-    const d = new Date(k + "T00:00:00");
-    const next = new Date(d); next.setDate(next.getDate() + 2);
-    const between = new Date(d); between.setDate(between.getDate() + 1);
-    if (between.getDay() !== 0 && !byKey[dateKey(between)] && byKey[dateKey(next)]) {
-      byKey[dateKey(between)] = "国民の休日";
-    }
-  }
-  _holidayCache[year] = byKey;
-  return byKey;
-}
-function isPublicHoliday(d) {
-  return !!getJapanHolidays(d.getFullYear())[dateKey(d)];
-}
-function publicHolidayName(d) {
-  return getJapanHolidays(d.getFullYear())[dateKey(d)] || "";
-}
-
-function isAutoNonWorking(d) {
-  const dow = d.getDay();
-  return dow === 0 || dow === 6 || isPublicHoliday(d);
-}
-function isNonWorkingDay(d) {
-  return isAutoNonWorking(d) || state.holidays.includes(dateKey(d));
-}
 function pickSlots(category, snapshot, liveCfg) {
-  // category: 'weekday' | 'holiday' | 'holidayEnd'
   const legacyKey = category === "holiday" ? "saturday" : category === "holidayEnd" ? "sundayHoliday" : null;
   if (snapshot) {
     if (snapshot[category] && snapshot[category].length) return snapshot[category];
@@ -401,6 +104,205 @@ async function resolveSlotsFor(mKey, cfgM, monthlyMap) {
   return null;
 }
 
+function esc(s) { return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
+function monthKey(d) { return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`; }
+function dateKey(d) { return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; }
+function daysInMonth(year, month) {
+  const arr = [];
+  const d = new Date(year, month, 1);
+  while (d.getMonth() === month) { arr.push(new Date(d)); d.setDate(d.getDate() + 1); }
+  return arr;
+}
+function hmToMinutes(hm) { const [h, m] = String(hm).split(":").map(Number); return (h || 0) * 60 + (m || 0); }
+function slotHours(slot) { let mins = hmToMinutes(slot.end) - hmToMinutes(slot.start); if (mins < 0) mins += 24 * 60; return mins / 60; }
+function hmDiffMinutes(aIso, bIso) { return (new Date(bIso) - new Date(aIso)) / 60000; }
+function fmtYen(n) { return "¥" + Math.round(n).toLocaleString("ja-JP"); }
+function calcHoursForPunches(records) {
+  const sorted = [...records].sort((a, b) => new Date(a.time) - new Date(b.time));
+  const inRec = sorted.find((r) => r.type === "in");
+  const outRecs = sorted.filter((r) => r.type === "out");
+  const outRec = outRecs.length ? outRecs[outRecs.length - 1] : null;
+  if (!inRec || !outRec) return 0;
+  const grossMin = hmDiffMinutes(inRec.time, outRec.time);
+  return grossMin > 0 ? grossMin / 60 : 0;
+}
+function firstInTime(records) {
+  const sorted = records.filter((r) => r.type === "in").sort((a, b) => new Date(a.time) - new Date(b.time));
+  return sorted.length ? new Date(sorted[0].time) : null;
+}
+function timeFromIso(iso) {
+  const d = new Date(iso);
+  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
+function combineDateTime(dateStr, timeStr) { return new Date(`${dateStr}T${timeStr}:00`).toISOString(); }
+
+async function apiGet(key) {
+  try {
+    const res = await fetch(`${CONFIG.API_URL}?action=get&key=${encodeURIComponent(key)}`);
+    const data = await res.json();
+    if (!data || data.value == null || data.value === "") return null;
+    return JSON.parse(data.value);
+  } catch (e) { console.error("apiGet failed", key, e); return null; }
+}
+async function apiSet(key, value) {
+  try {
+    await fetch(CONFIG.API_URL, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify({ action: "set", key, value: JSON.stringify(value) }) });
+    return true;
+  } catch (e) { console.error("apiSet failed", key, e); return false; }
+}
+async function apiList(prefix) {
+  try {
+    const res = await fetch(`${CONFIG.API_URL}?action=list&prefix=${encodeURIComponent(prefix)}`);
+    const data = await res.json();
+    return (data && data.keys) || [];
+  } catch (e) { console.error("apiList failed", prefix, e); return []; }
+}
+async function apiListValues(prefix) {
+  // { key: parsedValue } for every key under prefix, fetched in a single request
+  try {
+    const res = await fetch(`${CONFIG.API_URL}?action=listValues&prefix=${encodeURIComponent(prefix)}`);
+    const data = await res.json();
+    const out = {};
+    for (const item of (data && data.items) || []) {
+      if (item.value == null || item.value === "") continue;
+      try { out[item.key] = JSON.parse(item.value); } catch (e) { /* skip malformed */ }
+    }
+    return out;
+  } catch (e) { console.error("apiListValues failed", prefix, e); return {}; }
+}
+// まとめて1回で取得(Code.gsのgetMany)。未対応なら並列の個別取得に切り替える
+async function apiBatch(keys, prefixes) {
+  try {
+    const res = await fetch(`${CONFIG.API_URL}?action=getMany&keys=${encodeURIComponent(JSON.stringify(keys))}&prefixes=${encodeURIComponent(JSON.stringify(prefixes))}`);
+    const data = await res.json();
+    if (data && !data.error && data.values) {
+      const values = {}, lists = {};
+      for (const k in data.values) { try { values[k] = JSON.parse(data.values[k]); } catch (e) {} }
+      for (const pf in data.lists || {}) {
+        lists[pf] = {};
+        for (const it of data.lists[pf]) { try { lists[pf][it.key] = JSON.parse(it.value); } catch (e) {} }
+      }
+      return { values, lists };
+    }
+  } catch (e) { console.error("getMany failed, fallback", e); }
+  const values = {}, lists = {};
+  await Promise.all([
+    ...keys.map(async (k) => { const v = await apiGet(k); if (v != null) values[k] = v; }),
+    ...prefixes.map(async (pf) => { lists[pf] = await apiListValues(pf); }),
+  ]);
+  return { values, lists };
+}
+// 過去6か月より前のデータは別シートに退避済みのため、それより前の月へは移動できない
+function monthTooOld(d) {
+  const n = new Date();
+  const min = new Date(n.getFullYear(), n.getMonth() - 6, 1);
+  return d < min;
+}
+async function apiAction(payload) {
+  try {
+    const res = await fetch(CONFIG.API_URL, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify(payload) });
+    return await res.json();
+  } catch (e) { console.error("apiAction failed", payload, e); return { error: String(e) }; }
+}
+function normalizeStaffDirectory(raw) {
+  if (!Array.isArray(raw)) return [];
+  return raw.map((item) =>
+    typeof item === "string"
+      ? { name: item, wage: 0, password: "", wageHistory: [] }
+      : { name: item.name, wage: Number(item.wage) || 0, password: item.password || "", wageHistory: Array.isArray(item.wageHistory) ? item.wageHistory : [] }
+  );
+}
+function wageForMonth(s, mKey) {
+  if (!s.wageHistory || !s.wageHistory.length) return s.wage;
+  const applicable = s.wageHistory.filter((h) => h.from <= mKey).sort((a, b) => a.from.localeCompare(b.from));
+  return applicable.length ? applicable[applicable.length - 1].wage : s.wage;
+}
+
+const state = {
+  cursor: (() => { const n = new Date(); return new Date(n.getFullYear(), n.getMonth(), 1); })(),
+  authed: sessionStorage.getItem("payrollAuthed") === "1",
+  adminPasswordValue: null,
+  showForgot: false,
+  forgotStep: "request",
+  forgotFlash: "",
+  loading: true,
+  tab: "detail", // "detail" | "compare"
+  staffDirectory: [],
+  selectedName: "",
+  isNewStaff: false,
+  holidays: [],
+  dateOverrides: {},
+  weekdaySlots: DEFAULT_WEEKDAY_SLOTS,
+  holidaySlots: DEFAULT_HOLIDAY_SLOTS,
+  holidayEndSlots: DEFAULT_HOLIDAY_END_SLOTS,
+  confirmed: {},
+  punchByDate: {}, // `${dateStr}|${name}` -> records[]
+  allSubmissions: {}, // name -> submission object
+  lateSummary: null, // { name: { month, q, half } }
+  lateSummaryLoading: false,
+  lateCountResetAt: null,
+  editDate: null,
+  editRecords: [],
+  flash: "",
+};
+
+// ---- 日本の祝日を自動計算 ----
+const _holidayCache = {};
+function nthMonday(year, month, n) {
+  const d = new Date(year, month - 1, 1);
+  let count = 0;
+  while (true) {
+    if (d.getDay() === 1) { count++; if (count === n) return new Date(d); }
+    d.setDate(d.getDate() + 1);
+  }
+}
+function vernalEquinox(year) { return Math.floor(20.8431 + 0.242194 * (year - 1980) - Math.floor((year - 1980) / 4)); }
+function autumnalEquinox(year) { return Math.floor(23.2488 + 0.242194 * (year - 1980) - Math.floor((year - 1980) / 4)); }
+function getJapanHolidays(year) {
+  if (_holidayCache[year]) return _holidayCache[year];
+  const list = [];
+  const add = (m, d, name) => list.push({ date: new Date(year, m - 1, d), name });
+  add(1, 1, "元日");
+  list.push({ date: nthMonday(year, 1, 2), name: "成人の日" });
+  add(2, 11, "建国記念の日");
+  add(2, 23, "天皇誕生日");
+  add(3, vernalEquinox(year), "春分の日");
+  add(4, 29, "昭和の日");
+  add(5, 3, "憲法記念日");
+  add(5, 4, "みどりの日");
+  add(5, 5, "こどもの日");
+  list.push({ date: nthMonday(year, 7, 3), name: "海の日" });
+  add(8, 11, "山の日");
+  list.push({ date: nthMonday(year, 9, 3), name: "敬老の日" });
+  add(9, autumnalEquinox(year), "秋分の日");
+  list.push({ date: nthMonday(year, 10, 2), name: "スポーツの日" });
+  add(11, 3, "文化の日");
+  add(11, 23, "勤労感謝の日");
+  const byKey = {};
+  for (const h of list) byKey[dateKey(h.date)] = h.name;
+  for (const h of [...list]) {
+    if (h.date.getDay() === 0) {
+      let sub = new Date(h.date);
+      do { sub.setDate(sub.getDate() + 1); } while (byKey[dateKey(sub)]);
+      byKey[dateKey(sub)] = "振替休日";
+    }
+  }
+  const sortedKeys = Object.keys(byKey).sort();
+  for (const k of sortedKeys) {
+    const d = new Date(k + "T00:00:00");
+    const next = new Date(d); next.setDate(next.getDate() + 2);
+    const between = new Date(d); between.setDate(between.getDate() + 1);
+    if (between.getDay() !== 0 && !byKey[dateKey(between)] && byKey[dateKey(next)]) {
+      byKey[dateKey(between)] = "国民の休日";
+    }
+  }
+  _holidayCache[year] = byKey;
+  return byKey;
+}
+function isPublicHoliday(d) { return !!getJapanHolidays(d.getFullYear())[dateKey(d)]; }
+
+function isAutoNonWorking(d) { const dow = d.getDay(); return dow === 0 || dow === 6 || isPublicHoliday(d); }
+function isNonWorkingDay(d) { return isAutoNonWorking(d) || state.holidays.includes(dateKey(d)); }
 function isWeekendType(d) { return isNonWorkingDay(d); }
 function dayCategory(d) {
   if (!isNonWorkingDay(d)) return "weekday";
@@ -417,170 +319,60 @@ function slotsForDate(d) {
   if (cat === "holidayEnd") return state.holidayEndSlots;
   return state.weekdaySlots;
 }
-// ---- 月予算 → 日ごとの予算(自動配分) ----
-// 1人の日を1、2人以上が同時に入る日を1.5として月予算を按分する。確定シフトが未登録の日は、枠の想定人数で判定する。
-function dayBudgetWeight(slots, dayConf) {
-  if (!slots || !slots.length) return 0;
-  const hasConf = Object.values(dayConf || {}).some(Boolean);
-  const items = [];
-  for (const s of slots) {
-    const name = hasConf ? (dayConf || {})[s.id] : "slot:" + s.id;
-    if (!name) continue;
-    const st = hmToMinutes(s.start), en = hmToMinutes(s.end);
-    if (en > st) items.push({ name, st, en });
-  }
-  if (!items.length) return 0;
-  for (let i = 0; i < items.length; i++) {
-    for (let j = i + 1; j < items.length; j++) {
-      if (items[i].name !== items[j].name && Math.min(items[i].en, items[j].en) > Math.max(items[i].st, items[j].st)) return 1.5;
-    }
-  }
-  return 1;
+function wageOf(name) { const s = state.staffDirectory.find((x) => x.name === name); return s ? Number(s.wage) || 0 : 0; }
+
+function flash(msg) {
+  state.flash = msg;
+  render();
+  setTimeout(() => { state.flash = ""; render(); }, 2000);
 }
-function dayPlannedHours(slots, dayConf) {
-  // その日の予定労働時間(確定シフトの合計。確定前の日は枠の合計)
-  const hasConf = Object.values(dayConf || {}).some(Boolean);
-  let h = 0;
-  for (const s of slots || []) {
-    if (hasConf && !(dayConf || {})[s.id]) continue;
-    h += Math.max(0, hmToMinutes(s.end) - hmToMinutes(s.start)) / 60;
+
+function effectiveAdminPassword() { return state.adminPasswordValue != null ? state.adminPasswordValue : CONFIG.ADMIN_PASSWORD; }
+
+function adminLogin() {
+  const input = document.getElementById("devPasswordInput");
+  const value = input ? input.value : "";
+  if (value === effectiveAdminPassword()) {
+    state.authed = true;
+    sessionStorage.setItem("payrollAuthed", "1");
+    loadMonth();
+  } else {
+    const el = document.getElementById("loginFlash");
+    if (el) el.textContent = "パスワードが違います";
   }
-  return Math.round(h * 100) / 100;
 }
-function monthBudgetDays() {
-  // 日予算 = 労働時間 × 予算単価。予算単価は、1人の日 r、2人以上の日 r×1.5 とし、月予算 ＝ Σ(労働時間×その日の単価) となるように決める
-  const dates = daysInMonth(state.cursor.getFullYear(), state.cursor.getMonth());
-  const mb = Number(state.monthBudget) || 0;
-  const rows = [];
-  let sum = 0;
-  for (const d of dates) {
-    const k = dateKey(d);
-    const slots = slotsForDate(d);
-    const dayConf = state.confirmed[k] || {};
-    const w = dayBudgetWeight(slots, dayConf);
-    const h = dayPlannedHours(slots, dayConf);
-    rows.push({ d, k, w, h }); sum += w * h;
-  }
-  const base = mb > 0 && sum > 0 ? mb / sum : 0;
-  for (const r of rows) { r.rate = base * r.w; r.budget = Math.round(r.h * r.rate); }
-  return { rows, sum, mb, base };
-}
-async function saveMonthBudget() {
-  const el = document.getElementById("monthBudgetInput");
-  state.monthBudget = Number(el && el.value) || 0;
-  await apiSet(`monthBudget:${monthKey(state.cursor)}`, state.monthBudget);
-  flash("月予算を保存しました");
+function showForgot() { state.showForgot = true; state.forgotStep = "request"; state.forgotFlash = ""; render(); }
+function backToLogin() { state.showForgot = false; state.forgotFlash = ""; render(); }
+async function requestResetCode() {
+  await apiAction({ action: "sendResetCode" });
+  state.forgotStep = "verify";
+  state.forgotFlash = "登録済みのメールアドレス宛にコードを送信しました";
   render();
 }
-function availableStaffFor(dKey, slotId) {
-  const requested = new Set(
-    Object.entries(state.allSubmissions)
-      .filter(([, sub]) => {
-        const e = sub[dKey];
-        if (!e) return false;
-        return (e.slots || []).includes(slotId);
-      })
-      .map(([name]) => name)
-  );
-  const all = state.staffDirectory.map((s) => ({ name: s.name, requested: requested.has(s.name) }));
-  // 希望を出している人を先に、それ以外を後に
-  all.sort((a, b) => (b.requested - a.requested) || a.name.localeCompare(b.name, "ja"));
-  return all;
-}
-function wageOf(name, mKey) {
-  const entry = state.staffDirectory.find((s) => s.name === name);
-  if (!entry) return 0;
-  const targetMKey = mKey || monthKey(state.cursor);
-  if (Array.isArray(entry.wageHistory) && entry.wageHistory.length) {
-    const applicable = entry.wageHistory.filter((h) => h.from <= targetMKey).sort((a, b) => a.from.localeCompare(b.from));
-    if (applicable.length) return Number(applicable[applicable.length - 1].wage) || 0;
+async function submitResetCode() {
+  const code = document.getElementById("resetCodeInput").value.trim();
+  const pw1 = document.getElementById("resetNewPassword").value;
+  const pw2 = document.getElementById("resetNewPassword2").value;
+  if (!pw1 || pw1 !== pw2) { state.forgotFlash = "新しいパスワードが一致しません"; render(); return; }
+  const result = await apiAction({ action: "resetAdminPassword", code, newPassword: pw1 });
+  if (result && result.ok) {
+    state.adminPasswordValue = pw1;
+    state.showForgot = false;
+    render();
+  } else {
+    const map = { bad_code: "コードが正しくありません", expired: "コードの有効期限が切れています", no_code: "先にコードを送信してください" };
+    state.forgotFlash = (result && map[result.error]) || "再設定に失敗しました";
+    render();
   }
-  return Number(entry.wage) || 0;
-}
-function dailyCost(d) {
-  const dKey = dateKey(d);
-  const conf = state.confirmed[dKey] || {};
-  const slots = slotsForDate(d);
-  const mKey = monthKey(d);
-  let total = 0;
-  for (const s of slots) {
-    const name = conf[s.id];
-    if (name) total += slotHours(s) * wageOf(name, mKey);
-  }
-  return total;
-}
-function normalizeStaffDirectory(raw) {
-  if (!Array.isArray(raw)) return [];
-  return raw.map((item) =>
-    typeof item === "string"
-      ? { name: item, wage: 0, password: "", wageHistory: [] }
-      : { name: item.name, wage: Number(item.wage) || 0, password: item.password || "", wageHistory: Array.isArray(item.wageHistory) ? item.wageHistory : [] }
-  );
 }
 
-async function loadStaffDirectory() {
-  const list = await apiGet(`staffList`);
-  state.staffDirectory = normalizeStaffDirectory(list);
+function changeMonth(delta) {
+  const nc = new Date(state.cursor.getFullYear(), state.cursor.getMonth() + delta, 1);
+  if (monthTooOld(nc)) { flash("6か月より前のデータは退避済みのため表示できません"); return; }
+  state.cursor = nc;
+  loadMonth();
 }
-
-let _monthLoadSeq = 0;
-async function applyMonthBatch(b, mKey) {
-  const v = b.values || {}, l = b.lists || {};
-  const monthlySlots = l["slotsConfig:"] || {};
-  const cfg = v["config:" + mKey] || null;
-  state.monthBudget = Number(v["monthBudget:" + mKey]) || 0;
-  state.staffDirectory = normalizeStaffDirectory(v["staffList"] || null);
-  if (v["adminPassword"] != null) state.adminPasswordValue = v["adminPassword"];
-  const subValues = l[`submission:${mKey}:`] || {};
-  let subs = {};
-  for (const key in subValues) {
-    const name = key.split(":").slice(2).join(":");
-    subs[name] = subValues[key];
-  }
-  state.holidays = (cfg && cfg.holidays) || [];
-  state.unlockedDates = (cfg && cfg.unlockedDates) || [];
-  state.dateOverrides = (cfg && cfg.dateOverrides) || {};
-  state.slotsOwn = !!monthlySlots["slotsConfig:" + mKey];
-  state.slotsSnapshot = await resolveSlotsFor(mKey, cfg, monthlySlots);
-  const slotsCfg = v["slotsConfig"] || null;
-  state.weekdaySlots = pickSlots("weekday", state.slotsSnapshot, slotsCfg);
-  state.holidaySlots = pickSlots("holiday", state.slotsSnapshot, slotsCfg);
-  state.holidayEndSlots = pickSlots("holidayEnd", state.slotsSnapshot, slotsCfg);
-  state.confirmed = v["confirmed:" + mKey] || {};
-  // クローズ報告の最終結果(売上・予算・達成可否)を日ごとに
-  const finals = {};
-  const reps = l[`teijiReport:${mKey}-`] || {};
-  for (const k in reps) {
-    if (!k.endsWith(":close")) continue;
-    const r = reps[k];
-    if (r && r.final && Number(r.final.budget) > 0) finals[k.split(":")[1]] = r.final;
-  }
-  state.closeFinals = finals;
-  state.allSubmissions = subs;
-  state.mySubmission = state.staffName && subs[state.staffName] ? subs[state.staffName] : {};
-}
-async function loadMonthData() {
-  const mKey = monthKey(state.cursor);
-  const seq = ++_monthLoadSeq;
-  const ck = "month:" + mKey;
-  // 前回の内容があれば先に表示(裏で最新に更新)
-  const cached = readCacheB(ck);
-  if (cached) {
-    try { await applyMonthBatch(cached, mKey); state.loading = false; render(); } catch (e) { state.loading = true; render(); }
-  } else { state.loading = true; render(); }
-  const b = await apiBatch(
-    [`config:${mKey}`, `slotsConfig`, `confirmed:${mKey}`, `staffList`, `monthBudget:${mKey}`, `adminPassword`],
-    [`submission:${mKey}:`, `slotsConfig:`, `teijiReport:${mKey}-`]
-  );
-  if (seq !== _monthLoadSeq) return; // 月が切り替わった・再読込済み
-  writeCacheB(ck, { values: { ...b.values, adminPassword: undefined }, lists: b.lists });
-  if (state.saving) { state.loading = false; return; }
-  await applyMonthBatch(b, mKey);
-  state.loading = false;
-  render();
-}
-
-function timeLabel(d) { return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`; }
+function setTab(t) { state.tab = t; render(); }
 
 
 // 予算達成の集計: クローズ報告に保存された final(売上・予算・達成可否)を月ごとに数える
@@ -600,927 +392,435 @@ function computeBudgetStats(values) {
   return { byStaff, achieved, total };
 }
 
-async function loadMyRecord() {
-  if (!state.staffName) return;
-  state.myRecordLoading = true;
-  state.myRecordError = false;
-  render();
-
-  try {
-    const realNow = new Date();
-    const now = new Date(realNow.getFullYear(), realNow.getMonth() - (state.myRecordOffset || 0), 1);
-    const mKey = monthKey(now);
-    const mb = await apiBatch(
-      [`config:${mKey}`, `slotsConfig`, `confirmed:${mKey}`, `payrollBonus:${mKey}`],
-      [`slotsConfig:`, `teijiReport:${mKey}-`, `punch:${mKey}`]
-    );
-    const cfg = mb.values[`config:${mKey}`] || null, slotsCfg = mb.values["slotsConfig"] || null;
-    const conf = mb.values[`confirmed:${mKey}`] || null, bonuses = mb.values[`payrollBonus:${mKey}`] || null;
-    const monthlyMap = mb.lists["slotsConfig:"] || {};
-    let budgetStats = { byStaff: {}, achieved: 0, total: 0 };
-    try { budgetStats = computeBudgetStats(mb.lists[`teijiReport:${mKey}-`] || {}); } catch (e) {}
-    const myBonus = (bonuses && Number(bonuses[state.staffName])) || 0;
-    const holidays = (cfg && cfg.holidays) || [];
-    const dateOverridesM = (cfg && cfg.dateOverrides) || {};
-    const snap = await resolveSlotsFor(mKey, cfg, monthlyMap);
-    const weekdaySlotsM = pickSlots("weekday", snap, slotsCfg);
-    const holidaySlotsM = pickSlots("holiday", snap, slotsCfg);
-    const holidayEndSlotsM = pickSlots("holidayEnd", snap, slotsCfg);
-    const confirmedM = conf || {};
-    const myWage = wageOf(state.staffName, mKey);
-
-    function isNonWorkingM(d, dKey) {
-      const dow = d.getDay();
-      return dow === 0 || dow === 6 || isPublicHoliday(d) || holidays.includes(dKey);
-    }
-    function slotsForDateM(d, dKey) {
-      const override = dateOverridesM[dKey];
-      if (override && override.length) return override;
-      if (!isNonWorkingM(d, dKey)) return weekdaySlotsM;
-      const next = new Date(d); next.setDate(next.getDate() + 1);
-      const nextDKey = dateKey(next);
-      return isNonWorkingM(next, nextDKey) ? holidaySlotsM : holidayEndSlotsM;
-    }
-
-    const dates = daysInMonth(now.getFullYear(), now.getMonth());
-    const rows = [];
-    let hoursTotal = 0, lateCount = 0;
-    let confirmedFirstHalf = 0, confirmedSecondHalf = 0;
-
-    for (const d of dates) {
-      const dKey = dateKey(d);
-      const dayConf = confirmedM[dKey] || {};
-      const slots = slotsForDateM(d, dKey);
-      const isConfirmedToday = slots.some((s) => dayConf[s.id] === state.staffName);
-      if (isConfirmedToday) {
-        if (d.getDate() <= 15) confirmedFirstHalf++;
-        else confirmedSecondHalf++;
-      }
-    }
-    const confirmedTotal = confirmedFirstHalf + confirmedSecondHalf;
-
-    const punchValues = mb.lists[`punch:${mKey}`] || {};
-    const recordsByDate = {};
-    for (const key in punchValues) {
-      const parts = key.split(":");
-      if (parts.length < 3) continue;
-      const dStr = parts[1];
-      const name = parts.slice(2).join(":");
-      if (name === state.staffName) recordsByDate[dStr] = punchValues[key];
-    }
-
-    for (const d of dates) {
-      if (d > realNow) continue;
-      const dKey = dateKey(d);
-      const records = recordsByDate[dKey];
-      if (!records || !records.length) continue;
-
-      const hours = calcHoursForPunches(records);
-      hoursTotal += hours;
-
-      const slots = slotsForDateM(d, dKey);
-      const dayConf = confirmedM[dKey] || {};
-      let scheduledStartMin = null;
-      for (const s of slots) {
-        if (dayConf[s.id] === state.staffName) {
-          const sm = hmToMinutes(s.start);
-          if (scheduledStartMin === null || sm < scheduledStartMin) scheduledStartMin = sm;
-        }
-      }
-      const inTime = firstInTime(records);
-      let isLate = false, lateMinutes = 0;
-      if (scheduledStartMin !== null && inTime) {
-        const actualMin = inTime.getHours() * 60 + inTime.getMinutes();
-        lateMinutes = actualMin - scheduledStartMin;
-        isLate = lateMinutes > CONFIG.LATE_GRACE_MINUTES;
-      }
-      if (isLate) lateCount++;
-
-      const inRecs = records.filter((r) => r.type === "in").sort((a, b) => new Date(a.time) - new Date(b.time));
-      const outRecs = records.filter((r) => r.type === "out").sort((a, b) => new Date(a.time) - new Date(b.time));
-      const inRec = inRecs.length ? inRecs[0] : null;
-      const outRec = outRecs.length ? outRecs[outRecs.length - 1] : null;
-
-      rows.push({
-        date: d,
-        dKey,
-        hours,
-        inLabel: inRec ? timeLabel(new Date(inRec.time)) : "-",
-        outLabel: outRec ? timeLabel(new Date(outRec.time)) : "-",
-        isLate,
-        lateMinutes,
-      });
-    }
-
-    state.myRecord = {
-      rows, hoursTotal, wageTotal: hoursTotal * myWage, lateCount,
-      confirmedTotal, confirmedFirstHalf, confirmedSecondHalf,
-      bonus: myBonus,
-      monthLabel: `${now.getFullYear()}年${now.getMonth() + 1}月`,
-      offset: state.myRecordOffset || 0,
-      budget: { storeAchieved: budgetStats.achieved, storeTotal: budgetStats.total, mine: budgetStats.byStaff[state.staffName] || { achieved: 0, worked: 0 } },
-    };
-  } catch (err) {
-    console.error("loadMyRecord failed", err);
-    state.myRecordError = true;
-  } finally {
-    state.myRecordLoading = false;
-    render();
-  }
-}
-
-function flash(msg) {
-  state.flash = msg;
-  render();
-  setTimeout(() => { state.flash = ""; render(); }, 1800);
-}
-
-async function saveDateConfig() {
-  await apiSet(`config:${monthKey(state.cursor)}`, { holidays: state.holidays, unlockedDates: state.unlockedDates, dateOverrides: state.dateOverrides, slotsSnapshot: state.slotsSnapshot });
-}
-async function toggleHoliday(dKey) {
-  state.holidays = state.holidays.includes(dKey) ? state.holidays.filter((h) => h !== dKey) : [...state.holidays, dKey];
-  render();
-  state.saving = true; render();
-  await saveDateConfig();
-  state.saving = false;
-  flash("設定を保存しました");
-}
-
-// ---- per-date shift time override ----
-function openDateSlotEditor(dKey) {
-  const d = new Date(dKey + "T00:00:00");
-  const existing = state.dateOverrides[dKey];
-  state.editingDateSlots = dKey;
-  state.editingSlotsList = existing && existing.length
-    ? existing.map((s) => ({ ...s }))
-    : slotsForDate(d).map((s) => ({ ...s }));
-  render();
-}
-function closeDateSlotEditor() {
-  state.editingDateSlots = null;
-  state.editingSlotsList = [];
-  render();
-}
-function addOverrideSlot() {
-  state.editingSlotsList = [...state.editingSlotsList, { id: uid(), label: "新しい枠", start: "09:00", end: "13:00" }];
-  render();
-}
-function removeOverrideSlot(id) {
-  state.editingSlotsList = state.editingSlotsList.filter((s) => s.id !== id);
-  render();
-}
-function updateOverrideSlotField(id, field, value) {
-  state.editingSlotsList = state.editingSlotsList.map((s) => (s.id === id ? { ...s, [field]: value } : s));
-}
-async function saveDateSlotOverride() {
-  const dKey = state.editingDateSlots;
-  state.dateOverrides = { ...state.dateOverrides, [dKey]: state.editingSlotsList };
-  state.saving = true; render();
-  await saveDateConfig();
-  state.saving = false;
-  state.editingDateSlots = null;
-  state.editingSlotsList = [];
-  flash("この日の時間を変更しました");
-}
-async function resetDateSlotOverride(dKey) {
-  const next = { ...state.dateOverrides };
-  delete next[dKey];
-  state.dateOverrides = next;
-  state.saving = true; render();
-  await saveDateConfig();
-  state.saving = false;
-  state.editingDateSlots = null;
-  state.editingSlotsList = [];
-  flash("通常の時間に戻しました");
-}
-async function toggleUnlock(dKey) {
-  state.unlockedDates = state.unlockedDates.includes(dKey) ? state.unlockedDates.filter((h) => h !== dKey) : [...state.unlockedDates, dKey];
-  render();
-  state.saving = true; render();
-  await saveDateConfig();
-  state.saving = false;
-  flash(state.unlockedDates.includes(dKey) ? "受付を再開しました" : "締切ロックに戻しました");
-}
-
-function toggleSlot(dKey, slotId) {
-  const cur = (state.mySubmission[dKey] && state.mySubmission[dKey].slots) || [];
-  const next = cur.includes(slotId) ? cur.filter((s) => s !== slotId) : [...cur, slotId];
-  state.mySubmission = { ...state.mySubmission, [dKey]: { slots: next } };
-  render();
-}
-
-async function submitMyShift() {
-  state.saving = true; render();
+let _mb = null; // 表示中の月のまとめ取得結果(遅刻集計でも使い回す)
+async function loadMonth() {
+  state.loading = true; render();
   const mKey = monthKey(state.cursor);
-  await apiSet(`submission:${mKey}:${state.staffName}`, state.mySubmission);
-  state.allSubmissions = { ...state.allSubmissions, [state.staffName]: state.mySubmission };
-  state.saving = false;
-  state.submitSuccess = true;
-  render();
-  window.scrollTo({ top: 0, behavior: "smooth" });
-  setTimeout(() => { state.submitSuccess = false; render(); }, 4000);
-}
+  const b = await apiBatch(
+    [`staffList`, `config:${mKey}`, `slotsConfig`, `confirmed:${mKey}`, `lateCountResetAt`],
+    [`slotsConfig:`, `punch:${mKey}`, `submission:${mKey}:`, `teijiReport:${mKey}-`]
+  );
+  _mb = { mKey, b };
+  const v = b.values, l = b.lists;
+  state.staffDirectory = normalizeStaffDirectory(v["staffList"] || null);
+  if (!state.selectedName && state.staffDirectory.length) state.selectedName = state.staffDirectory[0].name;
 
-function assign(dKey, field, name) {
-  state.confirmed = { ...state.confirmed, [dKey]: { ...state.confirmed[dKey], [field]: name || undefined } };
-  render();
-}
-async function saveConfirmed() {
-  state.saving = true; render();
-  state.slotsSnapshot = {
-    weekday: state.weekdaySlots.map((s) => ({ ...s })),
-    holiday: state.holidaySlots.map((s) => ({ ...s })),
-    holidayEnd: state.holidayEndSlots.map((s) => ({ ...s })),
-  };
-  await apiSet(`confirmed:${monthKey(state.cursor)}`, state.confirmed);
-  _allCfgCache = null;
-  await saveDateConfig();
-  state.saving = false;
-  flash("確定シフトを保存しました");
-}
+  const cfg = v[`config:${mKey}`] || null, slotsCfg = v["slotsConfig"] || null;
+  state.holidays = (cfg && cfg.holidays) || [];
+  state.dateOverrides = (cfg && cfg.dateOverrides) || {};
+  const snap = await resolveSlotsFor(mKey, cfg, l["slotsConfig:"] || {});
+  state.weekdaySlots = pickSlots("weekday", snap, slotsCfg);
+  state.holidaySlots = pickSlots("holiday", snap, slotsCfg);
+  state.holidayEndSlots = pickSlots("holidayEnd", snap, slotsCfg);
+  state.confirmed = v[`confirmed:${mKey}`] || {};
 
-// ---- slot (shift time / headcount) editing ----
-async function saveSlotsConfig() {
-  state.saving = true; render();
-  const payload = { weekday: state.weekdaySlots, holiday: state.holidaySlots, holidayEnd: state.holidayEndSlots };
-  await apiSet(`slotsConfig:${monthKey(state.cursor)}`, payload);
-  _allCfgCache = null;
-  state.slotsOwn = true;
-  state.slotsSnapshot = payload;
-  state.saving = false;
-  flash(`${state.cursor.getMonth() + 1}月のシフト枠を保存しました（以降の月にも引き継がれます）`);
-}
-
-// ---- 新人枠の削除＋ワンオペへの一括統合(1回限りのメンテナンス用) ----
-async function removeNewbieSlotAndMigrate() {
-  const newbie = state.weekdaySlots.find((s) => s.label.includes("新人"));
-  if (!newbie) {
-    flash("「新人」という名前の平日枠が見つかりませんでした");
-    return;
+  const punchValues = l[`punch:${mKey}`] || {};
+  const punchByDate = {};
+  for (const key in punchValues) {
+    const parts = key.split(":");
+    if (parts.length < 3) continue;
+    punchByDate[`${parts[1]}|${parts.slice(2).join(":")}`] = punchValues[key];
   }
-  const targetId = "w1";
-  if (!state.weekdaySlots.some((s) => s.id === targetId)) {
-    flash("ワンオペ枠(w1)が見つからないため中止しました");
-    return;
-  }
-  if (!confirm(`「${newbie.label}」枠を削除し、これまでの希望シフト・確定シフトを全てワンオペ枠に統合します。元に戻せません。よろしいですか？`)) return;
+  state.punchByDate = punchByDate;
 
-  const newbieId = newbie.id;
+  const subValues = l[`submission:${mKey}:`] || {};
+  const subs = {};
+  for (const key in subValues) subs[key.split(":").slice(2).join(":")] = subValues[key];
+  state.allSubmissions = subs;
+
+  try { state.budgetStats = computeBudgetStats(l[`teijiReport:${mKey}-`] || {}); } catch (e) { state.budgetStats = { byStaff: {}, achieved: 0, total: 0 }; }
+
+  state.loading = false;
+  await loadLateSummary();
+}
+
+async function resetLateCounts() {
+  if (!confirm("これまでの遅刻回数をリセットします。今日より前の遅刻は集計されなくなります。よろしいですか？")) return;
+  const today = dateKey(new Date());
   state.saving = true; render();
+  await apiSet("lateCountResetAt", today);
+  state.saving = false;
+  flash("遅刻回数をリセットしました");
+  if (_mb) _mb.b.values["lateCountResetAt"] = today;
+  loadLateSummary();
+}
 
-  // ① 希望シフト(submission)を全期間スキャンして移行
-  const subValues = await apiListValues("submission:");
-  let subUpdated = 0;
-  for (const key in subValues) {
-    const data = subValues[key];
-    let changed = false;
-    for (const dKey in data) {
-      const entry = data[dKey];
-      if (entry && Array.isArray(entry.slots) && entry.slots.includes(newbieId)) {
-        const next = entry.slots.filter((id) => id !== newbieId);
-        if (!next.includes(targetId)) next.push(targetId);
-        entry.slots = next;
-        changed = true;
+async function loadLateSummary() {
+  if (!_mb) return;
+  state.lateSummaryLoading = true; render();
+  const { mKey: curKey, b } = _mb;
+  const slotsCfg = b.values["slotsConfig"] || null;
+  const resetAt = b.values["lateCountResetAt"] || null;
+  const monthlySlots = b.lists["slotsConfig:"] || {};
+  state.lateCountResetAt = resetAt;
+
+  const cutoffKey = curKey; // 遅刻は表示中の月のみ集計(月の切り替えに連動)
+  const punchValues = b.lists[`punch:${curKey}`] || {};
+  const parsed = Object.keys(punchValues).map((k) => {
+    const parts = k.split(":");
+    if (parts.length < 3) return null;
+    return { key: k, dStr: parts[1], name: parts.slice(2).join(":"), mKey: parts[1].slice(0, 7), records: punchValues[k] };
+  }).filter((p) => p && p.mKey >= cutoffKey && (!resetAt || p.dStr >= resetAt));
+
+  const monthCache = {};
+  if (parsed.length) {
+    const cfg = b.values[`config:${curKey}`] || null;
+    monthCache[curKey] = { holidays: (cfg && cfg.holidays) || [], dateOverrides: (cfg && cfg.dateOverrides) || {}, slotsSnapshot: await resolveSlotsFor(curKey, cfg, monthlySlots), confirmed: b.values[`confirmed:${curKey}`] || {} };
+  }
+
+  function isNonWorkingP(dateObj, mKeyForDate) {
+    const dow = dateObj.getDay();
+    if (dow === 0 || dow === 6 || isPublicHoliday(dateObj)) return true;
+    const mc = monthCache[mKeyForDate];
+    return mc ? mc.holidays.includes(dateKey(dateObj)) : false;
+  }
+  function slotsFor(p) {
+    const { dateOverrides, slotsSnapshot } = monthCache[p.mKey];
+    const override = dateOverrides[p.dStr];
+    if (override && override.length) return override;
+    const d = new Date(p.dStr + "T00:00:00");
+    if (!isNonWorkingP(d, p.mKey)) return pickSlots("weekday", slotsSnapshot, slotsCfg);
+    const next = new Date(d); next.setDate(next.getDate() + 1);
+    const nextMKey = monthKey(next);
+    const cat = isNonWorkingP(next, nextMKey) ? "holiday" : "holidayEnd";
+    return pickSlots(cat, slotsSnapshot, slotsCfg);
+  }
+
+  const candidates = parsed.filter((p) => {
+    const { confirmed } = monthCache[p.mKey];
+    const slots = slotsFor(p);
+    const dayConf = confirmed[p.dStr] || {};
+    return slots.some((s) => dayConf[s.id] === p.name);
+  });
+
+  const lateEvents = [];
+  const attendanceEvents = [];
+  for (const p of candidates) {
+    const { confirmed } = monthCache[p.mKey];
+    const slots = slotsFor(p);
+    const dayConf = confirmed[p.dStr] || {};
+    let scheduledStartMin = null;
+    for (const s of slots) {
+      if (dayConf[s.id] === p.name) {
+        const sm = hmToMinutes(s.start);
+        if (scheduledStartMin === null || sm < scheduledStartMin) scheduledStartMin = sm;
       }
     }
-    if (changed) { await apiSet(key, data); subUpdated++; }
+    const records = p.records;
+    if (!records) continue;
+    const inTime = firstInTime(records);
+    if (!inTime) continue;
+    attendanceEvents.push({ name: p.name, dateStr: p.dStr });
+    const actualMin = inTime.getHours() * 60 + inTime.getMinutes();
+    if (actualMin - scheduledStartMin > CONFIG.LATE_GRACE_MINUTES) lateEvents.push({ name: p.name, dateStr: p.dStr });
   }
 
-  // ② 確定シフト(confirmed)を全期間スキャンして移行
-  const confValues = await apiListValues("confirmed:");
-  let confUpdated = 0;
-  for (const key in confValues) {
-    const data = confValues[key];
-    let changed = false;
-    for (const dKey in data) {
-      const dayConf = data[dKey];
-      if (dayConf && Object.prototype.hasOwnProperty.call(dayConf, newbieId)) {
-        dayConf[targetId] = dayConf[newbieId];
-        delete dayConf[newbieId];
-        changed = true;
+  const monthStart = new Date(state.cursor.getFullYear(), state.cursor.getMonth(), 1);
+  const summary = {};
+  for (const s of state.staffDirectory) summary[s.name] = { month: 0, q: 0, half: 0, attMonth: 0, attQ: 0, attHalf: 0 };
+  for (const ev of attendanceEvents) {
+    if (!summary[ev.name]) summary[ev.name] = { month: 0, q: 0, half: 0, attMonth: 0, attQ: 0, attHalf: 0 };
+    const d = new Date(ev.dateStr + "T00:00:00");
+    if (d >= monthStart) summary[ev.name].attMonth++;
+  }
+  for (const ev of lateEvents) {
+    if (!summary[ev.name]) summary[ev.name] = { month: 0, q: 0, half: 0, attMonth: 0, attQ: 0, attHalf: 0 };
+    const d = new Date(ev.dateStr + "T00:00:00");
+    if (d >= monthStart) summary[ev.name].month++;
+  }
+  state.lateSummary = summary;
+  state.lateSummaryLoading = false;
+  render();
+}
+
+function computeMonthStatsForStaff(name) {
+  const dates = daysInMonth(state.cursor.getFullYear(), state.cursor.getMonth());
+  let scheduledHours = 0, actualHours = 0, submissionCount = 0;
+  const sub = state.allSubmissions[name] || {};
+  for (const d of dates) {
+    const dKey = dateKey(d);
+    const conf = state.confirmed[dKey] || {};
+    const slots = slotsForDate(d);
+    const requestedSlots = (sub[dKey] && sub[dKey].slots) || [];
+    for (const s of slots) {
+      const isConfirmed = conf[s.id] === name;
+      const isRequested = requestedSlots.includes(s.id);
+      if (isConfirmed) scheduledHours += slotHours(s);
+      if (isConfirmed || isRequested) submissionCount++; // 希望していなくてもシフトインしていればカウント
+    }
+    const records = state.punchByDate[`${dKey}|${name}`];
+    if (records && records.length) actualHours += calcHoursForPunches(records);
+  }
+  const diff = actualHours - scheduledHours;
+  const rate = scheduledHours > 0 ? (diff / scheduledHours) * 100 : (actualHours > 0 ? 100 : 0);
+  return { scheduledHours, actualHours, diff, rate, submissionCount };
+}
+
+// ---- staff account management ----
+function selectStaff(name) {
+  if (name === "__new__") { state.isNewStaff = true; state.selectedName = ""; }
+  else { state.isNewStaff = false; state.selectedName = name; }
+  render();
+}
+async function saveStaffAccount() {
+  const nameInput = document.getElementById("staffNameField").value.trim();
+  const pwInput = document.getElementById("staffPasswordField").value;
+  const wageInput = Number(document.getElementById("staffWageField").value) || 0;
+  if (!nameInput) { flash("名前を入力してください"); return; }
+
+  const nowMKey = monthKey(new Date());
+  const existingIdx = state.staffDirectory.findIndex((s) => s.name === (state.isNewStaff ? nameInput : state.selectedName));
+  let newDirectory;
+  if (existingIdx === -1) {
+    newDirectory = [...state.staffDirectory, { name: nameInput, password: pwInput, wage: wageInput, wageHistory: [{ wage: wageInput, from: nowMKey }] }];
+  } else {
+    newDirectory = state.staffDirectory.map((s, i) => {
+      if (i !== existingIdx) return s;
+      let history = Array.isArray(s.wageHistory) ? [...s.wageHistory] : [];
+      if (!history.length) history = [{ wage: s.wage, from: nowMKey }];
+      if (wageInput !== s.wage) {
+        const idx = history.findIndex((h) => h.from === nowMKey);
+        if (idx !== -1) history[idx] = { wage: wageInput, from: nowMKey };
+        else history.push({ wage: wageInput, from: nowMKey });
       }
-    }
-    if (changed) { await apiSet(key, data); confUpdated++; }
+      return { name: nameInput, password: pwInput, wage: wageInput, wageHistory: history };
+    });
   }
-
-  // ③ 固定済みの月のスナップショット(config)からも新人枠を除去
-  const cfgValues = await apiListValues("config:");
-  let cfgUpdated = 0;
-  for (const key in cfgValues) {
-    const data = cfgValues[key];
-    if (data && data.slotsSnapshot && Array.isArray(data.slotsSnapshot.weekday)) {
-      const before = data.slotsSnapshot.weekday.length;
-      data.slotsSnapshot.weekday = data.slotsSnapshot.weekday.filter((s) => s.id !== newbieId);
-      if (data.slotsSnapshot.weekday.length !== before) { await apiSet(key, data); cfgUpdated++; }
-    }
-  }
-
-  // ④ 現在の平日枠設定から新人枠を削除して保存
-  state.weekdaySlots = state.weekdaySlots.filter((s) => s.id !== newbieId);
-  await apiSet(`slotsConfig`, { weekday: state.weekdaySlots, holiday: state.holidaySlots, holidayEnd: state.holidayEndSlots });
-
-  state.saving = false;
-  flash(`完了：希望シフト${subUpdated}件・確定シフト${confUpdated}件・固定設定${cfgUpdated}件を統合しました`);
-  await loadMonthData();
-}
-function stateKeyFor(type) {
-  if (type === "weekday") return "weekdaySlots";
-  if (type === "holiday") return "holidaySlots";
-  return "holidayEndSlots";
-}
-function addSlot(type) {
-  const key = stateKeyFor(type);
-  const newSlot = { id: uid(), label: "新しい枠", start: "09:00", end: "13:00" };
-  state[key] = [...state[key], newSlot];
-  render();
-}
-function removeSlot(type, id) {
-  const key = stateKeyFor(type);
-  state[key] = state[key].filter((s) => s.id !== id);
-  render();
-}
-function updateSlotField(type, id, field, value) {
-  const key = stateKeyFor(type);
-  state[key] = state[key].map((s) => (s.id === id ? { ...s, [field]: value } : s));
-}
-
-// ---- staff account management (admin) ----
-async function saveStaffDirectory() {
   state.saving = true; render();
-  await apiSet(`staffList`, state.staffDirectory);
+  await apiSet("staffList", newDirectory);
+  state.staffDirectory = newDirectory;
+  state.isNewStaff = false;
+  state.selectedName = nameInput;
   state.saving = false;
   flash("スタッフ情報を保存しました");
 }
-function addStaff() {
-  state.staffDirectory = [...state.staffDirectory, { name: "", wage: 0, password: "" }];
+async function deleteStaffAccount() {
+  const newDirectory = state.staffDirectory.filter((s) => s.name !== state.selectedName);
+  state.saving = true; render();
+  await apiSet("staffList", newDirectory);
+  state.staffDirectory = newDirectory;
+  state.selectedName = newDirectory.length ? newDirectory[0].name : "";
+  state.saving = false;
+  flash("スタッフを削除しました");
+}
+
+// ---- punch correction ----
+function openEditPunch(dKey) {
+  const existing = state.punchByDate[`${dKey}|${state.selectedName}`] || [];
+  state.editDate = dKey;
+  state.editRecords = existing.map((r) => ({ type: r.type, time: r.time })).sort((a, b) => new Date(a.time) - new Date(b.time));
   render();
 }
-function removeStaff(name) {
-  state.staffDirectory = state.staffDirectory.filter((s) => s.name !== name);
+function closeEditPunch() { state.editDate = null; state.editRecords = []; render(); }
+function editRecordTypeChange(index, value) { state.editRecords[index].type = value; }
+function editRecordTimeChange(index, value) { state.editRecords[index].time = combineDateTime(state.editDate, value); }
+function removeEditRecord(index) { state.editRecords.splice(index, 1); render(); }
+function addEditRecord() { state.editRecords.push({ type: "in", time: combineDateTime(state.editDate, "09:00") }); render(); }
+async function saveEditPunch() {
+  const sorted = [...state.editRecords].sort((a, b) => new Date(a.time) - new Date(b.time));
+  const key = `punch:${state.editDate}:${state.selectedName}`;
+  state.saving = true; render();
+  await apiSet(key, sorted);
+  state.punchByDate[`${state.editDate}|${state.selectedName}`] = sorted;
+  state.saving = false;
+  state.editDate = null;
+  state.editRecords = [];
   render();
-}
-function updateStaffField(index, field, value) {
-  state.staffDirectory = state.staffDirectory.map((s, i) => (i === index ? { ...s, [field]: value } : s));
-}
-
-// ---- staff login (ID = name, password) ----
-async function staffLogin() {
-  const nameSel = document.getElementById("staffLoginName");
-  const pwInput = document.getElementById("staffLoginPassword");
-  const name = nameSel ? nameSel.value : "";
-  const pw = pwInput ? pwInput.value : "";
-  if (!name) { flash("お名前を選択してください"); return; }
-  const entry = state.staffDirectory.find((s) => s.name === name);
-  if (!entry || entry.password !== pw) {
-    flash("名前またはパスワードが違います");
-    return;
-  }
-  state.staffAuthed = true;
-  state.staffName = name;
-  sessionStorage.setItem("staffAuthed", "1");
-  sessionStorage.setItem("staffAuthedName", name);
-  loadMonthData();
-  loadMyRecord();
-}
-function staffLogout() {
-  state.staffAuthed = false;
-  state.staffName = "";
-  sessionStorage.removeItem("staffAuthed");
-  sessionStorage.removeItem("staffAuthedName");
-  render();
-}
-async function changeMyPassword() {
-  const cur = document.getElementById("curPasswordInput");
-  const next1 = document.getElementById("newPasswordInput");
-  const next2 = document.getElementById("newPasswordInput2");
-  const entry = state.staffDirectory.find((s) => s.name === state.staffName);
-  if (!entry || (cur ? cur.value : "") !== entry.password) { flash("現在のパスワードが違います"); return; }
-  if (!next1.value || next1.value !== next2.value) { flash("新しいパスワードが一致しません"); return; }
-  state.staffDirectory = state.staffDirectory.map((s) => (s.name === state.staffName ? { ...s, password: next1.value } : s));
-  state.saving = true; render();
-  await apiSet(`staffList`, state.staffDirectory);
-  state.saving = false;
-  state.showPasswordChange = false;
-  flash("パスワードを変更しました");
-}
-
-function changeMonth(delta) {
-  const nc = new Date(state.cursor.getFullYear(), state.cursor.getMonth() + delta, 1);
-  const min = new Date(new Date().getFullYear(), new Date().getMonth() - 6, 1);
-  if (nc < min) { flash("6か月より前のデータは退避済みのため表示できません"); return; }
-  state.cursor = nc;
-  loadMonthData();
-}
-
-function effectiveAdminPassword() {
-  return state.adminPasswordValue != null ? state.adminPasswordValue : CONFIG.ADMIN_PASSWORD;
-}
-
-async function adminLogin() {
-  const input = document.getElementById("adminPasswordInput");
-  const value = input ? input.value : "";
-  if (value === effectiveAdminPassword()) {
-    state.adminAuthed = true;
-    sessionStorage.setItem("adminAuthed", "1");
-    await loadStaffDirectory();
-    loadMonthData();
-  } else {
-    flash("パスワードが違います");
-  }
-}
-
-async function changeAdminPassword() {
-  const cur = document.getElementById("curAdminPasswordInput");
-  const pw1 = document.getElementById("newAdminPassword");
-  const pw2 = document.getElementById("newAdminPassword2");
-  if (!cur || cur.value !== effectiveAdminPassword()) { flash("現在のパスワードが違います"); return; }
-  if (!pw1.value || pw1.value !== pw2.value) { flash("新しいパスワードが一致しません"); return; }
-  state.saving = true; render();
-  await apiSet("adminPassword", pw1.value);
-  state.adminPasswordValue = pw1.value;
-  state.saving = false;
-  state.showAdminPasswordChange = false;
-  flash("管理者パスワードを変更しました");
-}
-
-async function requestResetCode() {
-  state.saving = true; render();
-  await apiAction({ action: "sendResetCode" });
-  state.saving = false;
-  state.forgotStep = "verify";
-  state.forgotFlash = "登録済みのメールアドレス宛にコードを送信しました";
-  render();
-}
-async function submitResetCode() {
-  const codeInput = document.getElementById("resetCodeInput");
-  const pw1 = document.getElementById("resetNewPassword");
-  const pw2 = document.getElementById("resetNewPassword2");
-  const code = codeInput ? codeInput.value.trim() : "";
-  if (!pw1.value || pw1.value !== pw2.value) {
-    state.forgotFlash = "新しいパスワードが一致しません";
-    render();
-    return;
-  }
-  state.saving = true; render();
-  const result = await apiAction({ action: "resetAdminPassword", code, newPassword: pw1.value });
-  state.saving = false;
-  if (result && result.ok) {
-    state.adminPasswordValue = pw1.value;
-    state.showForgotPassword = false;
-    state.forgotStep = "request";
-    state.forgotFlash = "";
-    flash("パスワードを再設定しました。新しいパスワードでログインしてください");
-    render();
-  } else {
-    const map = { bad_code: "コードが正しくありません", expired: "コードの有効期限が切れています", no_code: "先にコードを送信してください" };
-    state.forgotFlash = (result && map[result.error]) || "再設定に失敗しました";
-    render();
-  }
 }
 
 // ---- rendering ----
+function lateRate(lateCount, attCount) {
+  if (!attCount) return "-";
+  return `${((lateCount / attCount) * 100).toFixed(0)}%`;
+}
+
 function dateLabelHtml(d, weekend) {
   const dow = d.getDay();
   const color = dow === 0 ? "var(--rose)" : dow === 6 ? "var(--green)" : "var(--ink)";
-  const holName = publicHolidayName(d);
   const cat = dayCategory(d);
-  let catBadge = "";
-  if (cat === "holidayEnd") catBadge = `<span class="badge badge-weekend">連休終了日</span>`;
-  else if (cat === "holiday") catBadge = `<span class="badge badge-weekend">休日</span>`;
-  return `<div class="date-label">
-    <span class="date-num" style="color:${color}">${d.getDate()}日</span>
-    <span class="date-dow" style="color:${color}">(${WEEKDAY_JP[dow]})</span>
-    ${holName ? `<span class="badge badge-weekend">${esc(holName)}</span>` : ""}
-    ${catBadge}
-  </div>`;
+  const badgeText = cat === "holidayEnd" ? "連休終了日" : cat === "holiday" ? "休日" : "";
+  return `<span style="color:${color};font-weight:700">${d.getDate()}日(${WEEKDAY_JP[dow]})</span>${badgeText ? ` <span class="pill pill-blue" style="font-size:10px">${badgeText}</span>` : ""}`;
+}
+function ratePill(rate, hasSchedule, hasPunch) {
+  if (!hasSchedule) return `<span class="pill pill-blue">予定なし</span>`;
+  if (!hasPunch) return `<span class="pill pill-red">未打刻</span>`;
+  if (Math.abs(rate) <= 10) return `<span class="pill pill-green">${rate >= 0 ? "+" : ""}${rate.toFixed(0)}%</span>`;
+  if (rate < 0) return `<span class="pill pill-red">${rate.toFixed(0)}%</span>`;
+  return `<span class="pill pill-blue">+${rate.toFixed(0)}%</span>`;
 }
 
-function renderInputTab() {
-  const dates = daysInMonth(state.cursor.getFullYear(), state.cursor.getMonth());
-  const periodA = dates.find((d) => d.getDate() === 1);
-  const periodB = dates.find((d) => d.getDate() === 16) || dates.find((d) => d.getDate() === 15);
-  const infoA = periodA && periodInfoFor(periodA);
-  const infoB = periodB && periodInfoFor(periodB);
-
-  let html = `<div class="welcome-row">
-    <span>ようこそ、${esc(state.staffName)} さん</span>
-    <span>
-      <button class="text-link" data-action="togglePasswordChange">パスワードを変更</button>
-      ・
-      <button class="text-link" data-action="staffLogout">ログアウト</button>
-    </span>
-  </div>`;
-
-  if (state.submitSuccess) {
-    html += `<div class="card" style="background:#2F6F4E;border-color:#2F6F4E;color:#fff;text-align:center;padding:20px">
-      <div style="font-size:32px">✅</div>
-      <div style="font-size:16px;font-weight:700;margin-top:6px">希望シフトを送信しました！</div>
-      <div style="font-size:12px;margin-top:4px;color:#DCE9E1">このまま画面を閉じても大丈夫です</div>
-    </div>`;
-  }
-
-  if (state.showPasswordChange) {
-    html += `<div class="card" style="margin-bottom:16px">
-      <div style="font-size:13px;font-weight:700;margin-bottom:8px">🔑 パスワード変更</div>
-      <label class="field-label">現在のパスワード</label>
-      <input type="password" id="curPasswordInput" />
-      <label class="field-label" style="margin-top:8px">新しいパスワード</label>
-      <input type="password" id="newPasswordInput" />
-      <label class="field-label" style="margin-top:8px">新しいパスワード（確認）</label>
-      <input type="password" id="newPasswordInput2" />
-      <button class="save-btn" data-action="changeMyPassword" style="margin-top:12px">変更する</button>
-    </div>`;
-  }
-
-  html += `
-    <div class="card" style="background:#FBF8F2;font-size:12px;color:var(--muted)">
-      ${infoA ? `<div>${isLocked(periodA) ? "🔒" : "📨"} 1〜15日分：提出期限 ${infoA.label}${isLocked(periodA) ? ` <span style="color:var(--rose)">（受付終了）</span>` : ""}</div>` : ""}
-      ${infoB ? `<div style="margin-top:4px">${isLocked(periodB) ? "🔒" : "📨"} 16日〜月末分：提出期限 ${infoB.label}${isLocked(periodB) ? ` <span style="color:var(--rose)">（受付終了）</span>` : ""}</div>` : ""}
-    </div>
-    <div class="grid" style="margin-top:16px">
-  `;
-
-  for (const d of dates) {
-    const dKey = dateKey(d);
-    const weekend = isWeekendType(d);
-    const entry = state.mySubmission[dKey];
-    const locked = effectiveLocked(d);
-    html += `<div class="card" style="${locked ? "opacity:.55" : ""}">
-      <div style="display:flex;align-items:center;justify-content:space-between">
-        ${dateLabelHtml(d, weekend)}
-        ${locked ? `<span class="badge badge-locked">🔒 受付終了</span>` : ""}
-      </div>`;
-    for (const s of slotsForDate(d)) {
-      const checked = ((entry && entry.slots) || []).includes(s.id);
-      html += `<button class="slot-btn ${checked ? "checked" : ""}" data-action="toggleSlot" data-date="${dKey}" data-slot="${s.id}" ${locked ? "disabled" : ""}>
-        <span>${esc(s.label)}（${s.start}〜${s.end}）</span><span>${checked ? "✓" : ""}</span>
-      </button>`;
-    }
-    html += `</div>`;
-  }
-  html += `</div>
-    <button class="submit-btn" style="${state.submitSuccess ? "background:#8AA99B" : ""}" data-action="submit" ${state.saving ? "disabled" : ""}>${state.saving ? "送信中…" : state.submitSuccess ? "✓ 送信済み（もう一度送信する）" : "📨 この内容で希望シフトを送信"}</button>`;
-  return html;
-}
-
-function slotEditorHtml(type, list, title) {
-  let rows = "";
-  for (const s of list) {
-    rows += `<div class="slot-editor-row">
-      <input type="text" value="${esc(s.label)}" data-action="slotLabel" data-type="${type}" data-id="${s.id}" placeholder="枠の名前" />
-      <input type="time" value="${s.start}" data-action="slotStart" data-type="${type}" data-id="${s.id}" />
-      〜
-      <input type="time" value="${s.end}" data-action="slotEnd" data-type="${type}" data-id="${s.id}" />
-      <button class="remove-btn" data-action="removeSlot" data-type="${type}" data-id="${s.id}">削除</button>
-    </div>`;
-  }
-  return `<div class="section-title">${title}</div>${rows}
-    <button class="add-btn" data-action="addSlot" data-type="${type}">＋ 枠を追加（人数を増やす）</button>`;
-}
-
-function staffEditorHtml() {
-  let rows = "";
-  state.staffDirectory.forEach((s, i) => {
-    rows += `<div class="staff-row">
-      <input type="text" value="${esc(s.name)}" data-action="staffName" data-index="${i}" placeholder="名前（ログインID）" />
-      <input type="text" value="${esc(s.password)}" data-action="staffPassword" data-index="${i}" placeholder="パスワード" />
-      <input type="number" value="${s.wage}" data-action="staffWage" data-index="${i}" placeholder="時給" min="0" step="10" />
-      <button class="remove-btn" data-action="removeStaff" data-name="${esc(s.name)}">削除</button>
-    </div>`;
-  });
-  return `<div class="card">
-    <div style="font-size:14px;font-weight:500;margin-bottom:4px">👥 スタッフアカウント・時給の設定</div>
-    <p style="font-size:12px;color:var(--muted2);margin:0 0 4px">名前がログインIDになります。パスワードはスタッフ側の画面でも変更できます。時給は打刻アプリの給与集計で使われます。</p>
-    ${rows}
-    <button class="add-btn" data-action="addStaff">＋ スタッフを追加</button>
-    <button class="save-btn" style="display:block;margin-top:12px" data-action="saveStaffDirectory">💾 スタッフ情報を保存</button>
-  </div>`;
-}
-
-function renderAdminTab() {
-  const dates = daysInMonth(state.cursor.getFullYear(), state.cursor.getMonth());
-
-  let html = `<div class="card">
-    <div style="display:flex;align-items:center;justify-content:space-between">
-      <div style="font-size:14px;font-weight:500">🔑 管理者パスワード</div>
-      <button class="text-link" data-action="toggleAdminPasswordChange">${state.showAdminPasswordChange ? "閉じる" : "変更する"}</button>
-    </div>
-    ${state.showAdminPasswordChange ? `
-      <div style="margin-top:8px">
-        <label class="field-label">現在のパスワード</label>
-        <input type="password" id="curAdminPasswordInput" />
-        <label class="field-label" style="margin-top:8px">新しいパスワード</label>
-        <input type="password" id="newAdminPassword" />
-        <label class="field-label" style="margin-top:8px">新しいパスワード（確認）</label>
-        <input type="password" id="newAdminPassword2" />
-        <button class="save-btn" style="margin-top:12px" data-action="changeAdminPassword">変更する</button>
-      </div>
-    ` : ""}
-  </div>`;
-
-  const mbd = monthBudgetDays();
-  html += `<div class="card" style="margin-top:12px">
-    <div style="font-size:14px;font-weight:500;margin-bottom:8px">💰 月予算（${state.cursor.getMonth() + 1}月）</div>
-    <label class="field-label">月予算（円）</label>
-    <div style="display:flex;gap:8px;align-items:center">
-      <input type="number" id="monthBudgetInput" value="${state.monthBudget || ""}" placeholder="例：1500000" />
-      <button class="save-btn" style="white-space:nowrap" data-action="saveMonthBudget">保存</button>
-    </div>
-    <p style="font-size:12px;color:var(--muted2);margin:6px 0 0">日予算 ＝ 労働時間 × 1時間あたりの予算（予算単価）です。予算単価は、月予算が月の労働時間の合計にちょうど配分されるように自動で決まり、2人以上が同時に入る日は1人の日の1.5倍になります（確定前の日は枠の想定人数・時間で計算）。定時報告の予算・予算達成の判定にも使われます。</p>
-    ${mbd.mb > 0 ? `<details style="margin-top:8px"><summary style="cursor:pointer;font-size:13px">日ごとの予算を見る（1人の日の単価 ${fmtYen(mbd.base)}/h）</summary>
-      <table style="margin-top:6px"><thead><tr><th>日付</th><th>人数</th><th style="text-align:right">労働時間</th><th style="text-align:right">単価</th><th style="text-align:right">日予算</th></tr></thead><tbody>${mbd.rows.map((r) => `<tr><td>${r.d.getMonth() + 1}/${r.d.getDate()}</td><td>${r.w === 1.5 ? "2人以上(1.5)" : r.w === 1 ? "1人(1)" : "-"}</td><td style="text-align:right">${r.h}h</td><td style="text-align:right">${r.w ? fmtYen(r.rate) : "-"}</td><td style="text-align:right">${fmtYen(r.budget)}</td></tr>`).join("")}</tbody></table></details>` : ""}
-  </div>`;
-
-  html += `<div class="card" style="margin-top:12px">
-    <div style="font-size:14px;font-weight:500;margin-bottom:8px">📊 今月の希望・確定回数（${state.cursor.getMonth() + 1}月）</div>
-    ${state.staffDirectory.length === 0 ? `<p style="font-size:12px;color:var(--muted2);margin:0">スタッフが登録されていません。</p>` : `
-      <table>
-        <thead><tr>
-          <th>名前</th>
-          <th class="num">希望(合計)</th><th class="num">確定(合計)</th>
-          <th class="num">前半 希望</th><th class="num">前半 確定</th>
-          <th class="num">後半 希望</th><th class="num">後半 確定</th>
-        </tr></thead>
-        <tbody>
-          ${state.staffDirectory.map((s) => {
-            const sub = state.allSubmissions[s.name] || {};
-            let requestedFirstHalf = 0, requestedSecondHalf = 0;
-            for (const dKey in sub) {
-              const entry = sub[dKey];
-              const count = (entry && entry.slots) ? entry.slots.length : 0;
-              if (!count) continue;
-              const dayNum = Number(dKey.split("-")[2]);
-              if (dayNum <= 15) requestedFirstHalf += count;
-              else requestedSecondHalf += count;
-            }
-            const requestedTotal = requestedFirstHalf + requestedSecondHalf;
-            let confirmedFirstHalf = 0, confirmedSecondHalf = 0;
-            for (const dKey in state.confirmed) {
-              const dayConf = state.confirmed[dKey];
-              const dayNum = Number(dKey.split("-")[2]);
-              for (const slotId in dayConf) {
-                if (dayConf[slotId] === s.name) {
-                  if (dayNum <= 15) confirmedFirstHalf++;
-                  else confirmedSecondHalf++;
-                }
-              }
-            }
-            const confirmedTotal = confirmedFirstHalf + confirmedSecondHalf;
-            return `<tr>
-              <td style="padding:4px 8px 4px 0">${esc(s.name)}</td>
-              <td class="num" style="font-weight:700">${requestedTotal}回</td><td class="num" style="font-weight:700">${confirmedTotal}回</td>
-              <td class="num">${requestedFirstHalf}回</td><td class="num">${confirmedFirstHalf}回</td>
-              <td class="num">${requestedSecondHalf}回</td><td class="num">${confirmedSecondHalf}回</td>
-            </tr>`;
-          }).join("")}
-        </tbody>
-      </table>
-    `}
-  </div>`;
-
-  html += `<div class="card" style="margin-top:12px">
-    <div style="font-size:14px;font-weight:500;margin-bottom:4px">🕐 シフト時間・人数の設定</div>
-    <p style="font-size:12px;color:var(--muted2);margin:0">枠を追加すると、その日の人数を増やせます。削除すると人数が減ります。</p>
-    <p style="font-size:12px;color:var(--muted2);margin:4px 0 0">「休日」＝連休の途中の日（土日祝が連続する場合、最終日より前）。「連休終了日」＝土日祝の連続が終わる最後の日（単独の土日なら日曜、土日月が休みなら月曜など）。</p>
-    <p style="font-size:13px;font-weight:700;color:var(--orange);margin:8px 0 0">📅 ${state.cursor.getFullYear()}年${state.cursor.getMonth() + 1}月の設定${state.slotsOwn ? "（この月専用の設定あり）" : "（この月専用の設定なし：前の月の時間を引き継いでいます）"}</p>
-    <p style="font-size:12px;color:var(--muted2);margin:4px 0 0">シフト時間は月ごとに設定します。変更して保存した月から、次に変更するまでの月へそのまま引き継がれます。過去の月には影響しません。</p>
-    ${slotEditorHtml("weekday", state.weekdaySlots, "平日")}
-    ${slotEditorHtml("holiday", state.holidaySlots, "休日")}
-    ${slotEditorHtml("holidayEnd", state.holidayEndSlots, "連休終了日")}
-    <button class="save-btn" style="display:block;margin-top:16px" data-action="saveSlotsConfig">💾 シフト時間・人数を保存</button>
-  </div>`;
-
-  if (state.weekdaySlots.some((s) => s.label.includes("新人"))) {
-    html += `<div class="card" style="margin-top:12px;background:#FBF8F2">
-      <div style="font-size:14px;font-weight:500;margin-bottom:4px">🧹 新人枠の削除・統合（1回限り）</div>
-      <p style="font-size:12px;color:var(--muted2);margin:0">「新人枠」を削除し、これまでに希望・確定されている新人枠の分をすべて「ワンオペ」枠に統合します。実行後は元に戻せません。</p>
-      <button class="remove-btn" style="margin-top:10px" data-action="removeNewbieSlotAndMigrate">新人枠を削除してワンオペに統合する</button>
-    </div>`;
-  }
-
-  html += `<div class="card" style="margin-top:12px">
-    <div style="font-size:14px;font-weight:500;margin-bottom:4px">⚠ 祝日の設定</div>
-    <p style="font-size:12px;color:var(--muted2);margin:0 0 8px">カレンダー上の祝日は自動で土日祝扱いになります（オレンジ色・クリック不可）。それ以外に臨時休業などで土日祝扱いにしたい日は、クリックで追加できます。</p>
-    <div>`;
-  for (const d of dates.filter((d) => d.getDay() !== 0 && d.getDay() !== 6)) {
-    const dKey = dateKey(d);
-    const holName = publicHolidayName(d);
-    if (holName) {
-      html += `<span class="holiday-chip active" style="cursor:default" title="${esc(holName)}">${d.getDate()}日</span>`;
-      continue;
-    }
-    const isHol = state.holidays.includes(dKey);
-    html += `<button class="holiday-chip ${isHol ? "active" : ""}" data-action="toggleHoliday" data-date="${dKey}">${d.getDate()}日</button>`;
-  }
-  html += `</div></div>`;
-
-  if (state.staffDirectory.length === 0) {
-    html += `<p style="font-size:14px;color:var(--muted2);margin:16px 0">まだスタッフが登録されていません。上の「スタッフアカウント」で追加してください。</p>`;
-  }
-
-  html += `<div style="margin-top:16px">`;
-  for (const d of dates) {
-    const dKey = dateKey(d);
-    const weekend = isWeekendType(d);
-    const conf = state.confirmed[dKey] || {};
-    const deadlinePassed = isLocked(d);
-    const unlocked = state.unlockedDates.includes(dKey);
-    const hasOverride = !!(state.dateOverrides[dKey] && state.dateOverrides[dKey].length);
-    html += `<div class="card">
-      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:4px">
-        <div>${dateLabelHtml(d, weekend)}${hasOverride ? ` <span class="badge" style="background:var(--orange-bg);color:var(--orange)">時間変更中</span>` : ""}</div>
-        <button class="text-link" data-action="openDateSlotEditor" data-date="${dKey}">🕐 この日だけ時間を変更</button>
-      </div>`;
-    if (deadlinePassed) {
-      html += `<button class="holiday-chip ${unlocked ? "active" : ""}" data-action="toggleUnlock" data-date="${dKey}" style="margin:8px 0 0">
-        ${unlocked ? "🔓 受付延長中（クリックで締切に戻す）" : "🔒 締切済み（クリックで受付を再開）"}
-      </button>`;
-    }
-    if (state.editingDateSlots === dKey) {
-      let rows = "";
-      for (const s of state.editingSlotsList) {
-        rows += `<div class="slot-editor-row">
-          <input type="text" value="${esc(s.label)}" data-action="overrideSlotLabel" data-id="${s.id}" placeholder="枠の名前" />
-          <input type="time" value="${s.start}" data-action="overrideSlotStart" data-id="${s.id}" />
-          〜
-          <input type="time" value="${s.end}" data-action="overrideSlotEnd" data-id="${s.id}" />
-          <button class="remove-btn" data-action="removeOverrideSlot" data-id="${s.id}">削除</button>
-        </div>`;
-      }
-      html += `<div class="card" style="background:#FBF8F2;margin-top:12px">
-        <div style="font-size:13px;font-weight:700;margin-bottom:4px">🕐 ${d.getMonth() + 1}/${d.getDate()}だけの時間設定</div>
-        ${rows}
-        <button class="add-btn" data-action="addOverrideSlot">＋ 枠を追加</button>
-        <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
-          <button class="submit-btn" style="margin-top:0;flex:1" data-action="saveDateSlotOverride">保存する</button>
-          ${hasOverride ? `<button class="remove-btn" data-action="resetDateSlotOverride" data-date="${dKey}">通常の時間に戻す</button>` : ""}
-          <button class="remove-btn" data-action="closeDateSlotEditor">キャンセル</button>
-        </div>
-      </div>`;
-    }
-    html += `<div style="margin-top:12px">`;
-    for (const s of slotsForDate(d)) {
-      html += assignRowHtml(`${s.label}（${s.start}〜${s.end}）`, conf[s.id] || "", availableStaffFor(dKey, s.id), dKey, s.id);
-    }
-    const cost = dailyCost(d);
-    if (cost > 0) html += `<div class="cost-total">💰 この日の人件費：${fmtYen(cost)}</div>`;
-    html += `</div></div>`;
-  }
-  html += `</div>
-    <button class="save-btn" data-action="saveConfirmed">🔒 シフトを確定して保存</button>`;
-  return html;
-}
-
-function assignRowHtml(label, value, options, dKey, field) {
-  let opts = `<option value="">未定</option>`;
-  for (const o of options) {
-    const optLabel = o.requested ? `${o.name}（○希望あり）` : `${o.name}（希望なし）`;
-    opts += `<option value="${esc(o.name)}" ${value === o.name ? "selected" : ""}>${esc(optLabel)}</option>`;
-  }
-  return `<div class="assign-row">
-    <span class="assign-label">${esc(label)}</span>
-    <select data-action="assign" data-date="${dKey}" data-field="${field}">${opts}</select>
-  </div>`;
-}
-
-function renderMyRecordTab() {
-  if (state.myRecordLoading) {
-    return `<div class="center-msg">読み込み中…</div>`;
-  }
-  if (state.myRecordError || !state.myRecord) {
-    return `<div class="center-msg">
-      <p>読み込みに失敗しました</p>
-      <button class="submit-btn" style="margin-top:12px" data-action="retryMyRecord">再読み込み</button>
-    </div>`;
-  }
-  const rec = state.myRecord;
-  let rows = "";
-  for (const r of rec.rows) {
-    const dow = r.date.getDay();
-    rows += `<tr>
-      <td>${r.date.getDate()}日(${WEEKDAY_JP[dow]})</td>
-      <td>${r.inLabel}</td>
-      <td>${r.outLabel}</td>
-      <td>${r.hours.toFixed(1)}h</td>
-      <td>${r.isLate ? `<span style="color:var(--rose);font-weight:700">遅刻 ${r.lateMinutes}分</span>` : ""}</td>
-    </tr>`;
-  }
-  const offLabels = ["今月", "先月", "2か月前", "3か月前", "4か月前", "5か月前", "6か月前"];
-  const monthSwitch = `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">${offLabels.map((l, i) =>
-    `<button class="submit-btn" style="padding:6px 12px;font-size:12px;${(state.myRecordOffset || 0) === i ? "" : "background:transparent;color:var(--muted);border:1px solid var(--muted2)"}" data-action="setMyRecordMonth" data-offset="${i}">${l}</button>`).join("")}</div>`;
+function renderStaffAccountForm() {
+  const s = state.isNewStaff ? { name: "", password: "", wage: 0 } : (state.staffDirectory.find((x) => x.name === state.selectedName) || { name: "", password: "", wage: 0 });
   return `
-    ${monthSwitch}
     <div class="card">
-      <div style="font-size:13px;font-weight:700;margin-bottom:8px">${esc(rec.monthLabel)}の記録（${esc(state.staffName)}）</div>
-      <div style="display:flex;gap:16px;flex-wrap:wrap">
-        <div><div style="font-size:11px;color:var(--muted)">労働時間</div><div style="font-size:20px;font-weight:700">${rec.hoursTotal.toFixed(1)}h</div></div>
-        <div><div style="font-size:11px;color:var(--muted)">${rec.offset === 0 ? "現状の給与見込み" : "給与見込み"}</div><div style="font-size:20px;font-weight:700">${fmtYen(rec.wageTotal)}</div></div>
-        <div><div style="font-size:11px;color:var(--muted)">遅刻回数</div><div style="font-size:20px;font-weight:700">${rec.lateCount}回</div></div>
-        <div><div style="font-size:11px;color:var(--muted)">予算達成回数（お店全体）</div><div style="font-size:20px;font-weight:700">${rec.budget.storeAchieved}回<span style="font-size:12px;font-weight:400;color:var(--muted)"> / ${rec.budget.storeTotal}日</span></div></div>
-        <div><div style="font-size:11px;color:var(--muted)">自分が入った日の予算達成</div><div style="font-size:20px;font-weight:700">${rec.budget.mine.achieved}回<span style="font-size:12px;font-weight:400;color:var(--muted)"> / ${rec.budget.mine.worked}日</span></div></div>
-        ${rec.bonus > 0 ? `<div><div style="font-size:11px;color:var(--muted)">${rec.offset === 0 ? "今月" : "この月"}のボーナス</div><div style="font-size:20px;font-weight:700;color:var(--orange)">${fmtYen(rec.bonus)}</div></div>` : ""}
+      <div style="font-size:14px;font-weight:700;margin-bottom:4px">👤 ${state.isNewStaff ? "新しいスタッフを追加" : "アカウント設定"}</div>
+      <p class="note" style="margin-top:0">名前がログインIDになります。</p>
+      <label class="field-label">名前(ログインID)</label>
+      <input type="text" id="staffNameField" value="${esc(s.name)}" placeholder="山田 太郎" />
+      <div class="field-row">
+        <div>
+          <label class="field-label">パスワード</label>
+          <input type="text" id="staffPasswordField" value="${esc(s.password)}" placeholder="パスワード" />
+        </div>
+        <div>
+          <label class="field-label">時給(円)</label>
+          <input type="number" id="staffWageField" value="${s.wage}" min="0" step="10" />
+        </div>
       </div>
-      <p style="font-size:11px;color:var(--muted2);margin-top:8px">給与見込みは、今月これまでの打刻から計算した時給ベースの概算です。実際の支給額とは異なる場合があります。</p>
-    </div>
-    <div class="card" style="margin-top:12px">
-      <div style="font-size:13px;font-weight:700;margin-bottom:8px">打刻履歴</div>
-      <table>
-        <thead><tr><th>日付</th><th>出勤</th><th>退勤</th><th>時間</th><th>備考</th></tr></thead>
-        <tbody>${rows || `<tr><td colspan="5" style="text-align:center;color:var(--muted2)">この月の打刻記録はありません</td></tr>`}</tbody>
-      </table>
+      <div style="display:flex;gap:8px;margin-top:12px">
+        <button class="save-btn" style="flex:1" onclick="saveStaffAccount()">💾 保存</button>
+        ${!state.isNewStaff && state.selectedName ? `<button class="remove-btn" onclick="deleteStaffAccount()">削除</button>` : ""}
+      </div>
     </div>
   `;
 }
 
-function renderReportTab() {
+function renderDetailTab() {
+  let options = `<option value="__new__" ${state.isNewStaff ? "selected" : ""}>＋ 新しいスタッフを追加</option>`;
+  for (const s of state.staffDirectory) options += `<option value="${esc(s.name)}" ${!state.isNewStaff && state.selectedName === s.name ? "selected" : ""}>${esc(s.name)}</option>`;
+
+  let html = `
+    <div class="card">
+      <label class="field-label">スタッフを選択</label>
+      <select onchange="selectStaff(this.value)">${options}</select>
+    </div>
+    ${renderStaffAccountForm()}
+  `;
+
+  if (!state.isNewStaff && state.selectedName) {
+    const stats = computeMonthStatsForStaff(state.selectedName);
+    const late = (state.lateSummary && state.lateSummary[state.selectedName]) || { month: 0, q: 0, half: 0, attMonth: 0, attQ: 0, attHalf: 0 };
+    const bs = ((state.budgetStats || {}).byStaff || {})[state.selectedName] || { achieved: 0, worked: 0 };
+    html += `
+      <div class="card">
+        <div style="font-size:14px;font-weight:700;margin-bottom:8px">📊 ${state.cursor.getFullYear()}年${state.cursor.getMonth() + 1}月のまとめ</div>
+        <div class="summary-row">
+          <div class="summary-item"><div class="label">希望・シフトイン回数</div><div class="value">${stats.submissionCount}枠</div></div>
+          <div class="summary-item"><div class="label">予定時間</div><div class="value">${stats.scheduledHours.toFixed(1)}h</div></div>
+          <div class="summary-item"><div class="label">実績時間</div><div class="value">${stats.actualHours.toFixed(1)}h</div></div>
+        </div>
+        <div class="summary-row">
+          <div class="summary-item"><div class="label">予算達成(入った日)</div><div class="value">${bs.achieved}回 <span style="font-size:12px;color:var(--muted)">/ ${bs.worked}日</span></div></div>
+          <div class="summary-item"><div class="label">予算達成(お店全体)</div><div class="value">${(state.budgetStats || {}).achieved || 0}回 <span style="font-size:12px;color:var(--muted)">/ ${(state.budgetStats || {}).total || 0}日</span></div></div>
+        </div>
+        <div class="summary-row">
+          <div class="summary-item"><div class="label">遅刻</div><div class="value">${late.month}回 <span style="font-size:12px;color:var(--muted)">(${lateRate(late.month, late.attMonth)})</span></div></div>
+        </div>
+        ${state.lateSummaryLoading ? `<p class="note">遅刻回数を集計中…</p>` : ""}
+        <p class="note">予算達成は、定時報告のクローズ報告で、売上単価（売上÷労働時間）が予算単価（日予算÷予定労働時間）以上だった日の数です（「入った日」はそのスタッフがクローズ報告の出勤者に入っていた日）。</p>
+      </div>
+    `;
+
+    html += renderDailyTable(state.selectedName);
+  }
+
+  return html;
+}
+
+function renderDailyTable(name) {
   const dates = daysInMonth(state.cursor.getFullYear(), state.cursor.getMonth());
   let rows = "";
-  let monthTotal = 0;
-  const showCost = state.route === "admin"; // スタッフ画面では人件費を非表示
-  const mbd = monthBudgetDays();
-  const bRow = {}; mbd.rows.forEach((r) => { bRow[r.k] = r; });
-  const finals = state.closeFinals || {};
-  const fKeys = Object.keys(finals);
-  const fOk = fKeys.filter((k) => finals[k].achieved).length;
   for (const d of dates) {
     const dKey = dateKey(d);
     const weekend = isWeekendType(d);
     const conf = state.confirmed[dKey] || {};
     const slots = slotsForDate(d);
-    const assignedAny = slots.some((s) => conf[s.id]);
-    const cost = dailyCost(d);
-    monthTotal += cost;
-    let cell = "";
-    if (!assignedAny) cell = `<span style="color:var(--rose)">未確定</span>`;
-    else cell = slots.filter((s) => conf[s.id]).map((s) => `<div>${esc(s.label)}（${s.start}〜${s.end}）：${esc(conf[s.id])}</div>`).join("");
-    const br = bRow[dKey];
-    const bcell = br && br.budget > 0 ? `<div>${fmtYen(br.budget)}</div><div style="font-size:10px;color:var(--muted)">${br.h}h×${fmtYen(br.rate)}</div>` : "";
-    const fin = finals[dKey];
-    const fcell = fin ? `<div style="font-weight:700;color:${fin.achieved ? "var(--green, #2F6F4E)" : "var(--rose)"}">${fin.achieved ? "✅ 達成" : "❌ 未達"}</div><div style="font-size:10px;color:var(--muted)">売上 ${fmtYen(fin.sales)}</div>` : "";
-    rows += `<tr><td>${dateLabelHtml(d, weekend)}</td><td>${cell}</td><td style="text-align:right">${bcell}</td><td style="text-align:center">${fcell}</td>${showCost ? `<td>${cost > 0 ? fmtYen(cost) : ""}</td>` : ""}</tr>`;
+    let scheduledHours = 0;
+    for (const s of slots) { if (conf[s.id] === name) scheduledHours += slotHours(s); }
+    const records = state.punchByDate[`${dKey}|${name}`] || [];
+    const actualHours = records.length ? calcHoursForPunches(records) : 0;
+    const diff = actualHours - scheduledHours;
+    const rate = scheduledHours > 0 ? (diff / scheduledHours) * 100 : (actualHours > 0 ? 100 : 0);
+
+    rows += `<tr>
+      <td>${dateLabelHtml(d, weekend)}</td>
+      <td class="num">${scheduledHours > 0 ? scheduledHours.toFixed(1) + "h" : "-"}</td>
+      <td class="num">${actualHours > 0 ? actualHours.toFixed(1) + "h" : "-"}</td>
+      <td class="num"><button class="remove-btn-plain" onclick="openEditPunch('${dKey}')">修正</button></td>
+    </tr>`;
+    if (state.editDate === dKey) {
+      let recRows = "";
+      state.editRecords.forEach((rec, i) => {
+        recRows += `<div class="slot-editor-row">
+          <select onchange="editRecordTypeChange(${i}, this.value)" style="flex:1">
+            <option value="in" ${rec.type === "in" ? "selected" : ""}>出勤</option>
+            <option value="out" ${rec.type === "out" ? "selected" : ""}>退勤</option>
+          </select>
+          <input type="time" value="${timeFromIso(rec.time)}" onchange="editRecordTimeChange(${i}, this.value)" style="width:110px" />
+          <button class="remove-btn" onclick="removeEditRecord(${i})">削除</button>
+        </div>`;
+      });
+      rows += `<tr><td colspan="4">
+        <div class="card" style="background:#FBF8F2;margin:8px 0">
+          <div style="font-size:13px;font-weight:700;margin-bottom:4px">🛠 打刻を修正</div>
+          ${recRows || `<p class="note">打刻記録がありません</p>`}
+          <button class="add-btn" onclick="addEditRecord()">＋ 打刻を追加</button>
+          <div style="display:flex;gap:8px;margin-top:12px">
+            <button class="submit-btn" style="margin-top:0;flex:1" onclick="saveEditPunch()">保存する</button>
+            <button class="remove-btn" onclick="closeEditPunch()">キャンセル</button>
+          </div>
+        </div>
+      </td></tr>`;
+    }
   }
   return `<div class="card">
-    <div style="font-size:14px;font-weight:700;margin-bottom:12px">👥 確定シフト一覧</div>
-    <div style="margin-bottom:12px;padding:10px 12px;border-radius:8px;background:rgba(47,111,78,.08);font-size:14px;font-weight:700">💰 今月の予算達成：${fOk}回 <span style="font-weight:400;font-size:12px;color:var(--muted)">／ クローズ報告 ${fKeys.length}日分（実際の労働時間×予算単価を売上が上回った日）</span></div>
-    <table><thead><tr><th>日付</th><th>担当</th><th style="text-align:right">日予算</th><th>予算達成</th>${showCost ? "<th>人件費</th>" : ""}</tr></thead><tbody>${rows}</tbody></table>
-    ${mbd.mb > 0 ? `<p style="font-size:11px;color:var(--muted2);margin-top:8px">日予算 ＝ その日の予定労働時間 × 1時間あたりの予算（1人の日 ${fmtYen(mbd.base)}/h、2人以上の日 ${fmtYen(mbd.base * 1.5)}/h）</p>` : `<p style="font-size:11px;color:var(--muted2);margin-top:8px">月予算が未設定です</p>`}
-    ${showCost ? `<div class="grand-total">今月の人件費合計：${fmtYen(monthTotal)}</div>` : ""}
+    <div style="font-size:14px;font-weight:700;margin-bottom:8px">🗓 日別の記録</div>
+    <div class="table-scroll">
+      <table>
+        <thead><tr><th>日付</th><th class="num">予定</th><th class="num">実績</th><th class="num">修正</th></tr></thead>
+        <tbody>${rows || `<tr><td colspan="4" style="text-align:center;color:var(--muted2)">この月はデータがありません</td></tr>`}</tbody>
+      </table>
+    </div>
   </div>`;
 }
 
-function renderStaffLoginGate() {
-  let options = `<option value="">選択してください</option>`;
-  for (const s of state.staffDirectory) options += `<option value="${esc(s.name)}">${esc(s.name)}</option>`;
-  return `
-    <header><div class="wrap header-row">
-      <div style="display:flex;align-items:center;gap:12px">
-        <div class="logo-badge">📅</div>
-        <div><h1 class="disp">シフト管理板<span class="tag">シフト提出</span></h1></div>
-      </div>
-    </div></header>
-    <div class="wrap" style="padding-top:60px;max-width:360px">
-      <div class="card">
-        <div style="font-size:14px;font-weight:700;margin-bottom:12px">🔑 スタッフログイン</div>
-        <label class="field-label">お名前</label>
-        <select id="staffLoginName">${options}</select>
-        <label class="field-label" style="margin-top:8px">パスワード</label>
-        <input type="password" id="staffLoginPassword" />
-        <button class="submit-btn" style="width:100%;justify-content:center;margin-top:12px" data-action="staffLogin">ログイン</button>
-        ${state.flash ? `<div class="flash" style="margin-top:8px">${esc(state.flash)}</div>` : ""}
-        <p style="font-size:11px;color:var(--muted2);margin-top:12px">ID・パスワードが分からない場合は管理者にご確認ください。</p>
-      </div>
+function renderCompareTab() {
+  let rows = "";
+  for (const s of state.staffDirectory) {
+    const stats = computeMonthStatsForStaff(s.name);
+    const late = (state.lateSummary && state.lateSummary[s.name]) || { month: 0, q: 0, half: 0, attMonth: 0, attQ: 0, attHalf: 0 };
+    rows += `<tr>
+      <td>${esc(s.name)}</td>
+      <td class="num">${fmtYen(wageForMonth(s, monthKey(state.cursor)))}</td>
+      <td class="num">${stats.submissionCount}枠</td>
+      <td class="num">${stats.scheduledHours.toFixed(1)}h</td>
+      <td class="num">${stats.actualHours.toFixed(1)}h</td>
+      <td class="num">${(((state.budgetStats || {}).byStaff || {})[s.name] || { achieved: 0, worked: 0 }).achieved}回/${(((state.budgetStats || {}).byStaff || {})[s.name] || { achieved: 0, worked: 0 }).worked}日</td>
+      <td class="num">${late.month}回（${lateRate(late.month, late.attMonth)}）</td>
+    </tr>`;
+  }
+  return `<div class="card">
+    <div style="font-size:14px;font-weight:700;margin-bottom:8px">📊 スタッフ比較（${state.cursor.getFullYear()}年${state.cursor.getMonth() + 1}月）</div>
+    <div class="table-scroll">
+      <table>
+        <thead><tr>
+          <th>名前</th><th class="num">時給</th><th class="num">希望/シフトイン</th><th class="num">予定時間</th>
+          <th class="num">実績時間</th><th class="num">予算達成(入った日)</th><th class="num">遅刻</th>
+        </tr></thead>
+        <tbody>${rows || `<tr><td colspan="6" style="text-align:center;color:var(--muted2)">スタッフが登録されていません</td></tr>`}</tbody>
+      </table>
     </div>
-  `;
+    ${state.lateSummaryLoading ? `<p class="note">遅刻回数を集計中…</p>` : ""}
+    <div style="margin-top:12px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      <button class="remove-btn" onclick="resetLateCounts()">🔄 遅刻回数をリセット</button>
+      ${state.lateCountResetAt ? `<span class="note" style="margin:0">${state.lateCountResetAt}以降の遅刻のみ集計しています</span>` : ""}
+    </div>
+  </div>`;
 }
 
 function render() {
   const root = document.getElementById("root");
 
-  if (!CONFIG.API_URL || CONFIG.API_URL.indexOf("YOUR_APPS_SCRIPT") === 0) {
-    root.innerHTML = `<div class="center-msg">
-      <div style="font-size:32px">⚠</div>
-      <p style="font-weight:700;margin-top:8px">API_URLが設定されていません</p>
-      <p style="font-size:14px;margin-top:8px">このファイル内の <code>CONFIG.API_URL</code> に、Google Apps Scriptで発行したウェブアプリのURLを貼り付けてください。</p>
-    </div>`;
-    return;
-  }
-
-  if (state.route === "admin" && !state.adminAuthed) {
-    if (state.showForgotPassword) {
+  if (!state.authed) {
+    if (state.showForgot) {
       root.innerHTML = `
-        <header><div class="wrap header-row">
-          <div style="display:flex;align-items:center;gap:12px">
-            <div class="logo-badge">📅</div>
-            <div><h1 class="disp">シフト管理板<span class="tag">シフト管理</span></h1></div>
-          </div>
-        </div></header>
-        <div class="wrap" style="padding-top:60px;max-width:360px">
+        <header><h1 class="disp">👥 従業員管理</h1></header>
+        <div class="wrap" style="max-width:360px">
           <div class="card">
             <div style="font-size:14px;font-weight:700;margin-bottom:12px">🔑 パスワードの再設定</div>
             ${state.forgotStep === "request" ? `
               <p style="font-size:13px;color:var(--muted)">登録済みのメールアドレスに再設定コードを送信します。</p>
-              <button class="submit-btn" style="width:100%;justify-content:center" data-action="requestResetCode" ${state.saving ? "disabled" : ""}>${state.saving ? "送信中…" : "コードを送信する"}</button>
+              <button class="submit-btn" onclick="requestResetCode()">コードを送信する</button>
             ` : `
               <label class="field-label">メールに届いたコード</label>
               <input type="text" id="resetCodeInput" placeholder="6桁のコード" />
@@ -1528,182 +828,71 @@ function render() {
               <input type="password" id="resetNewPassword" />
               <label class="field-label" style="margin-top:8px">新しいパスワード（確認）</label>
               <input type="password" id="resetNewPassword2" />
-              <button class="submit-btn" style="width:100%;justify-content:center" data-action="submitResetCode" ${state.saving ? "disabled" : ""}>${state.saving ? "処理中…" : "パスワードを再設定する"}</button>
+              <button class="submit-btn" onclick="submitResetCode()">パスワードを再設定する</button>
             `}
-            ${state.forgotFlash ? `<div class="flash" style="margin-top:8px">${esc(state.forgotFlash)}</div>` : ""}
-            <button class="text-link" style="margin-top:12px" data-action="backToLogin">ログイン画面に戻る</button>
+            <div style="font-size:12px;color:var(--orange);margin-top:8px">${esc(state.forgotFlash)}</div>
+            <button onclick="backToLogin()" style="background:none;border:none;color:var(--muted);text-decoration:underline;font-size:12px;margin-top:12px;cursor:pointer">ログイン画面に戻る</button>
           </div>
         </div>
       `;
       return;
     }
     root.innerHTML = `
-      <header><div class="wrap header-row">
-        <div style="display:flex;align-items:center;gap:12px">
-          <div class="logo-badge">📅</div>
-          <div><h1 class="disp">シフト管理板<span class="tag">シフト管理</span></h1></div>
-        </div>
-      </div></header>
-      <div class="wrap" style="padding-top:60px;max-width:360px">
+      <header><h1 class="disp">👥 従業員管理</h1></header>
+      <div class="wrap" style="max-width:360px">
         <div class="card">
-          <div style="font-size:14px;font-weight:700;margin-bottom:12px">🔒 管理者パスワード</div>
-          <input type="password" id="adminPasswordInput" placeholder="パスワードを入力" />
-          <button class="submit-btn" style="width:100%;justify-content:center;margin-top:12px" data-action="adminLogin">入る</button>
-          ${state.flash ? `<div class="flash" style="margin-top:8px">${esc(state.flash)}</div>` : ""}
-          <button class="text-link" style="margin-top:12px" data-action="showForgotPassword">パスワードを忘れた場合はこちら</button>
+          <label class="field-label">管理者パスワード</label>
+          <input type="password" id="devPasswordInput" />
+          <button class="submit-btn" onclick="adminLogin()">入る</button>
+          <div id="loginFlash" style="font-size:12px;color:var(--orange);margin-top:8px"></div>
+          <button onclick="showForgot()" style="background:none;border:none;color:var(--muted);text-decoration:underline;font-size:12px;margin-top:12px;cursor:pointer">パスワードを忘れた場合はこちら</button>
         </div>
       </div>
     `;
-    const pw = document.getElementById("adminPasswordInput");
-    if (pw) {
-      pw.focus();
-      pw.addEventListener("keydown", (e) => { if (e.key === "Enter") adminLogin(); });
-    }
+    const pw = document.getElementById("devPasswordInput");
+    if (pw) { pw.focus(); pw.addEventListener("keydown", (e) => { if (e.key === "Enter") adminLogin(); }); }
     return;
   }
 
-  if (state.route === "staff" && !state.staffAuthed) {
-    if (state.loading) {
-      root.innerHTML = `<div class="center-msg">読み込み中…</div>`;
-      return;
-    }
-    root.innerHTML = renderStaffLoginGate();
-    const pw = document.getElementById("staffLoginPassword");
-    if (pw) pw.addEventListener("keydown", (e) => { if (e.key === "Enter") staffLogin(); });
-    return;
-  }
-
-  const tabs = state.route === "admin"
-    ? [{ id: "admin", label: "🔒 シフト確定" }, { id: "report", label: "📋 確定シフト表" }]
-    : [{ id: "input", label: "📨 希望シフト入力" }, { id: "report", label: "📋 確定シフト表" }, { id: "myrecord", label: "🕐 自分の記録（遅刻・予算達成）" }];
-
-  let body;
-  if (state.loading) {
-    body = `<div class="center-msg">読み込み中…</div>`;
-  } else if (state.tab === "input") {
-    body = renderInputTab();
-  } else if (state.tab === "admin") {
-    body = renderAdminTab();
-  } else if (state.tab === "myrecord") {
-    body = renderMyRecordTab();
-  } else {
-    body = renderReportTab();
-  }
+  const body = state.loading ? `<div class="center-msg">読み込み中…</div>` : (state.tab === "detail" ? renderDetailTab() : renderCompareTab());
 
   root.innerHTML = `
-    <header><div class="wrap header-row">
-      <div style="display:flex;align-items:center;gap:12px">
-        <div class="logo-badge">📅</div>
-        <div>
-          <h1 class="disp">シフト管理板<span class="tag">${state.route === "admin" ? "シフト管理" : "シフト提出"}</span></h1>
-          <p class="sub">平日ワンオペ・土日祝二部制</p>
-        </div>
-      </div>
-      <div style="display:flex;align-items:center;gap:16px">
-        ${(state.saving || state.flash) ? `<div class="flash">${state.saving ? "保存中…" : esc(state.flash)}</div>` : ""}
-        ${state.route === "admin" ? `<a class="switch-link" href="#staff">スタッフ画面へ</a>` : ""}
-      </div>
-    </div></header>
+    <header><h1 class="disp">👥 従業員管理</h1></header>
     <div class="wrap">
+      ${state.flash ? `<div class="note" style="color:var(--green);font-weight:700">${esc(state.flash)}</div>` : ""}
       <div class="month-nav">
-        <button data-action="prevMonth">‹</button>
-        <div class="month-label disp">${state.cursor.getFullYear()}年 ${state.cursor.getMonth() + 1}月</div>
-        <button data-action="nextMonth">›</button>
+        <button onclick="changeMonth(-1)">‹</button>
+        <div class="disp" style="font-size:17px">${state.cursor.getFullYear()}年 ${state.cursor.getMonth() + 1}月</div>
+        <button onclick="changeMonth(1)">›</button>
       </div>
       <div class="tabs">
-        ${tabs.map((t) => `<button class="tab-btn ${state.tab === t.id ? "active" : ""}" data-action="setTab" data-tab="${t.id}">${t.label}</button>`).join("")}
+        <button class="tab-btn ${state.tab === "detail" ? "active" : ""}" onclick="setTab('detail')">👤 スタッフ詳細</button>
+        <button class="tab-btn ${state.tab === "compare" ? "active" : ""}" onclick="setTab('compare')">📊 比較</button>
       </div>
       ${body}
     </div>
-    <div class="footer-note">入力・確定内容はスタッフ全員が閲覧できる共有データ（Googleスプレッドシート）として保存されます。</div>
   `;
 }
 
-// ---- event delegation ----
-document.addEventListener("click", (e) => {
-  const el = e.target.closest("[data-action]");
-  if (!el) return;
-  const action = el.dataset.action;
-  if (action === "prevMonth") changeMonth(-1);
-  else if (action === "nextMonth") changeMonth(1);
-  else if (action === "setTab") {
-    state.tab = el.dataset.tab;
-    render();
-    if (state.tab === "myrecord" && !state.myRecord && !state.myRecordLoading) loadMyRecord();
-  }
-  else if (action === "retryMyRecord") loadMyRecord();
-  else if (action === "saveMonthBudget") saveMonthBudget();
-  else if (action === "setMyRecordMonth") { state.myRecordOffset = Number(el.dataset.offset) || 0; loadMyRecord(); }
-  else if (action === "toggleSlot") toggleSlot(el.dataset.date, el.dataset.slot);
-  else if (action === "submit") submitMyShift();
-  else if (action === "toggleHoliday") toggleHoliday(el.dataset.date);
-  else if (action === "toggleUnlock") toggleUnlock(el.dataset.date);
-  else if (action === "openDateSlotEditor") openDateSlotEditor(el.dataset.date);
-  else if (action === "closeDateSlotEditor") closeDateSlotEditor();
-  else if (action === "addOverrideSlot") addOverrideSlot();
-  else if (action === "removeOverrideSlot") removeOverrideSlot(el.dataset.id);
-  else if (action === "saveDateSlotOverride") saveDateSlotOverride();
-  else if (action === "resetDateSlotOverride") resetDateSlotOverride(el.dataset.date);
-  else if (action === "saveConfirmed") saveConfirmed();
-  else if (action === "adminLogin") adminLogin();
-  else if (action === "showForgotPassword") { state.showForgotPassword = true; state.forgotStep = "request"; state.forgotFlash = ""; render(); }
-  else if (action === "backToLogin") { state.showForgotPassword = false; state.forgotFlash = ""; render(); }
-  else if (action === "requestResetCode") requestResetCode();
-  else if (action === "submitResetCode") submitResetCode();
-  else if (action === "toggleAdminPasswordChange") { state.showAdminPasswordChange = !state.showAdminPasswordChange; render(); }
-  else if (action === "changeAdminPassword") changeAdminPassword();
-  else if (action === "addSlot") addSlot(el.dataset.type);
-  else if (action === "removeSlot") removeSlot(el.dataset.type, el.dataset.id);
-  else if (action === "saveSlotsConfig") saveSlotsConfig();
-  else if (action === "removeNewbieSlotAndMigrate") removeNewbieSlotAndMigrate();
-  else if (action === "addStaff") addStaff();
-  else if (action === "removeStaff") removeStaff(el.dataset.name);
-  else if (action === "saveStaffDirectory") saveStaffDirectory();
-  else if (action === "staffLogin") staffLogin();
-  else if (action === "staffLogout") staffLogout();
-  else if (action === "togglePasswordChange") { state.showPasswordChange = !state.showPasswordChange; render(); }
-  else if (action === "changeMyPassword") changeMyPassword();
-});
-document.addEventListener("change", (e) => {
-  const el = e.target.closest("[data-action]");
-  if (!el) return;
-  const action = el.dataset.action;
-  if (action === "assign") assign(el.dataset.date, el.dataset.field, el.value);
-  else if (action === "slotLabel") updateSlotField(el.dataset.type, el.dataset.id, "label", el.value);
-  else if (action === "slotStart") updateSlotField(el.dataset.type, el.dataset.id, "start", el.value);
-  else if (action === "slotEnd") updateSlotField(el.dataset.type, el.dataset.id, "end", el.value);
-  else if (action === "overrideSlotLabel") updateOverrideSlotField(el.dataset.id, "label", el.value);
-  else if (action === "overrideSlotStart") updateOverrideSlotField(el.dataset.id, "start", el.value);
-  else if (action === "overrideSlotEnd") updateOverrideSlotField(el.dataset.id, "end", el.value);
-  else if (action === "staffName") updateStaffField(Number(el.dataset.index), "name", el.value);
-  else if (action === "staffWage") updateStaffField(Number(el.dataset.index), "wage", el.value);
-  else if (action === "staffPassword") updateStaffField(Number(el.dataset.index), "password", el.value);
-});
-window.addEventListener("hashchange", () => {
-  state.route = readRoute();
-  state.tab = state.route === "admin" ? "admin" : "input";
-  render();
-});
+window.adminLogin = adminLogin;
+window.changeMonth = changeMonth;
+window.showForgot = showForgot;
+window.backToLogin = backToLogin;
+window.requestResetCode = requestResetCode;
+window.submitResetCode = submitResetCode;
+window.setTab = setTab;
+window.selectStaff = selectStaff;
+window.saveStaffAccount = saveStaffAccount;
+window.deleteStaffAccount = deleteStaffAccount;
+window.openEditPunch = openEditPunch;
+window.closeEditPunch = closeEditPunch;
+window.editRecordTypeChange = editRecordTypeChange;
+window.editRecordTimeChange = editRecordTimeChange;
+window.removeEditRecord = removeEditRecord;
+window.addEditRecord = addEditRecord;
+window.saveEditPunch = saveEditPunch;
 
-// ---- boot ----
-(async function init() {
-  if (!CONFIG.API_URL || CONFIG.API_URL.indexOf("YOUR_APPS_SCRIPT") === 0) { render(); return; }
-  const needMonth = state.route === "admin" ? state.adminAuthed : state.staffAuthed;
-  if (needMonth) {
-    // ログイン済み: 月のデータ(スタッフ名簿・管理者パスワード込み)を1回でまとめて取得
-    if (state.route === "admin") { loadMonthData(); }
-    else { loadMonthData().then(() => { if (!state.staffDirectory.find((s) => s.name === state.staffName)) { state.staffAuthed = false; render(); } }); loadMyRecord(); }
-    return;
-  }
-  state.loading = true;
-  render();
-  const b = await apiBatch(["adminPassword", "staffList"], []);
-  state.adminPasswordValue = b.values["adminPassword"] != null ? b.values["adminPassword"] : null;
-  state.staffDirectory = normalizeStaffDirectory(b.values["staffList"] || null);
-  state.staffAuthed = false;
-  state.loading = false;
-  render();
-})();
+if (state.authed) { loadMonth(); } else render();
 </script>
 </body>
 </html>
