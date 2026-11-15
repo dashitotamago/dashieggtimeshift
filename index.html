@@ -412,18 +412,33 @@ function dayBudgetWeight(slots, dayConf) {
   }
   return 1;
 }
+function dayPlannedHours(slots, dayConf) {
+  // その日の予定労働時間(確定シフトの合計。確定前の日は枠の合計)
+  const hasConf = Object.values(dayConf || {}).some(Boolean);
+  let h = 0;
+  for (const s of slots || []) {
+    if (hasConf && !(dayConf || {})[s.id]) continue;
+    h += Math.max(0, hmToMinutes(s.end) - hmToMinutes(s.start)) / 60;
+  }
+  return round2(h);
+}
 function monthBudgetDays() {
+  // 日予算 = 労働時間 × 予算単価。予算単価は、1人の日 r、2人以上の日 r×1.5 とし、月予算 ＝ Σ(労働時間×その日の単価) となるように決める
   const dates = daysInMonth(state.cursor.getFullYear(), state.cursor.getMonth());
   const mb = Number(state.monthBudget) || 0;
   const rows = [];
   let sum = 0;
   for (const d of dates) {
     const k = dateKey(d);
-    const w = dayBudgetWeight(slotsForDate(d), state.confirmed[k] || {});
-    rows.push({ d, k, w }); sum += w;
+    const slots = slotsForDate(d);
+    const dayConf = state.confirmed[k] || {};
+    const w = dayBudgetWeight(slots, dayConf);
+    const h = dayPlannedHours(slots, dayConf);
+    rows.push({ d, k, w, h }); sum += w * h;
   }
-  for (const r of rows) r.budget = sum > 0 ? Math.round(mb * r.w / sum) : 0;
-  return { rows, sum, mb };
+  const base = mb > 0 && sum > 0 ? mb / sum : 0;
+  for (const r of rows) { r.rate = base * r.w; r.budget = Math.round(r.h * r.rate); }
+  return { rows, sum, mb, base };
 }
 async function saveMonthBudget() {
   const el = document.getElementById("monthBudgetInput");
@@ -1162,9 +1177,9 @@ function renderAdminTab() {
       <input type="number" id="monthBudgetInput" value="${state.monthBudget || ""}" placeholder="例：1500000" />
       <button class="save-btn" style="white-space:nowrap" data-action="saveMonthBudget">保存</button>
     </div>
-    <p style="font-size:12px;color:var(--muted2);margin:6px 0 0">月予算から日ごとの予算が自動で決まります。1人の日を「1」、2人以上が同時に入る日を「1.5」として按分します（確定前の日は枠の想定人数で計算）。定時報告の予算・予算達成の判定にも使われます。</p>
-    ${mbd.mb > 0 ? `<details style="margin-top:8px"><summary style="cursor:pointer;font-size:13px">日ごとの予算を見る（合計 ${mbd.sum}日分）</summary>
-      <table style="margin-top:6px"><thead><tr><th>日付</th><th>人数</th><th style="text-align:right">日予算</th></tr></thead><tbody>${mbd.rows.map((r) => `<tr><td>${r.d.getMonth() + 1}/${r.d.getDate()}</td><td>${r.w === 1.5 ? "2人以上(1.5)" : r.w === 1 ? "1人(1)" : "-"}</td><td style="text-align:right">${fmtYen(r.budget)}</td></tr>`).join("")}</tbody></table></details>` : ""}
+    <p style="font-size:12px;color:var(--muted2);margin:6px 0 0">日予算 ＝ 労働時間 × 1時間あたりの予算（予算単価）です。予算単価は、月予算が月の労働時間の合計にちょうど配分されるように自動で決まり、2人以上が同時に入る日は1人の日の1.5倍になります（確定前の日は枠の想定人数・時間で計算）。定時報告の予算・予算達成の判定にも使われます。</p>
+    ${mbd.mb > 0 ? `<details style="margin-top:8px"><summary style="cursor:pointer;font-size:13px">日ごとの予算を見る（1人の日の単価 ${fmtYen(mbd.base)}/h）</summary>
+      <table style="margin-top:6px"><thead><tr><th>日付</th><th>人数</th><th style="text-align:right">労働時間</th><th style="text-align:right">単価</th><th style="text-align:right">日予算</th></tr></thead><tbody>${mbd.rows.map((r) => `<tr><td>${r.d.getMonth() + 1}/${r.d.getDate()}</td><td>${r.w === 1.5 ? "2人以上(1.5)" : r.w === 1 ? "1人(1)" : "-"}</td><td style="text-align:right">${r.h}h</td><td style="text-align:right">${r.w ? fmtYen(r.rate) : "-"}</td><td style="text-align:right">${fmtYen(r.budget)}</td></tr>`).join("")}</tbody></table></details>` : ""}
   </div>`;
 
   html += `<div class="card" style="margin-top:12px">
