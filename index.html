@@ -392,6 +392,46 @@ function slotsForDate(d) {
   if (cat === "holidayEnd") return state.holidayEndSlots;
   return state.weekdaySlots;
 }
+// ---- 月予算 → 日ごとの予算(自動配分) ----
+// 1人の日を1、2人以上が同時に入る日を1.5として月予算を按分する。確定シフトが未登録の日は、枠の想定人数で判定する。
+function dayBudgetWeight(slots, dayConf) {
+  if (!slots || !slots.length) return 0;
+  const hasConf = Object.values(dayConf || {}).some(Boolean);
+  const items = [];
+  for (const s of slots) {
+    const name = hasConf ? (dayConf || {})[s.id] : "slot:" + s.id;
+    if (!name) continue;
+    const st = hmToMinutes(s.start), en = hmToMinutes(s.end);
+    if (en > st) items.push({ name, st, en });
+  }
+  if (!items.length) return 0;
+  for (let i = 0; i < items.length; i++) {
+    for (let j = i + 1; j < items.length; j++) {
+      if (items[i].name !== items[j].name && Math.min(items[i].en, items[j].en) > Math.max(items[i].st, items[j].st)) return 1.5;
+    }
+  }
+  return 1;
+}
+function monthBudgetDays() {
+  const dates = daysInMonth(state.cursor.getFullYear(), state.cursor.getMonth());
+  const mb = Number(state.monthBudget) || 0;
+  const rows = [];
+  let sum = 0;
+  for (const d of dates) {
+    const k = dateKey(d);
+    const w = dayBudgetWeight(slotsForDate(d), state.confirmed[k] || {});
+    rows.push({ d, k, w }); sum += w;
+  }
+  for (const r of rows) r.budget = sum > 0 ? Math.round(mb * r.w / sum) : 0;
+  return { rows, sum, mb };
+}
+async function saveMonthBudget() {
+  const el = document.getElementById("monthBudgetInput");
+  state.monthBudget = Number(el && el.value) || 0;
+  await apiSet(`monthBudget:${monthKey(state.cursor)}`, state.monthBudget);
+  flash("月予算を保存しました");
+  render();
+}
 function availableStaffFor(dKey, slotId) {
   const requested = new Set(
     Object.entries(state.allSubmissions)
@@ -447,14 +487,16 @@ async function loadMonthData() {
   state.loading = true;
   render();
   const mKey = monthKey(state.cursor);
-  const [cfg, slotsCfg, conf, staffList, subValues, monthlySlots] = await Promise.all([
+  const [cfg, slotsCfg, conf, staffList, subValues, monthlySlots, monthBudgetVal] = await Promise.all([
     apiGet(`config:${mKey}`),
     apiGet(`slotsConfig`),
     apiGet(`confirmed:${mKey}`),
     apiGet(`staffList`),
     apiListValues(`submission:${mKey}:`),
     apiListValues(`slotsConfig:`),
+    apiGet(`monthBudget:${mKey}`),
   ]);
+  state.monthBudget = Number(monthBudgetVal) || 0;
   state.staffDirectory = normalizeStaffDirectory(staffList);
   let subs = {};
   for (const key in subValues) {
@@ -478,6 +520,24 @@ async function loadMonthData() {
 
 function timeLabel(d) { return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`; }
 
+
+// 予算達成の集計: クローズ報告に保存された final(売上・予算・達成可否)を月ごとに数える
+function computeBudgetStats(values) {
+  const byStaff = {};
+  let achieved = 0, total = 0;
+  for (const key in values) {
+    if (!key.endsWith(":close")) continue;
+    const r = values[key];
+    if (!r || !r.final || !(Number(r.final.budget) > 0)) continue;
+    total++;
+    const ok = !!r.final.achieved;
+    if (ok) achieved++;
+    const names = new Set((r.staffHours || []).filter((s) => s.name && Number(s.hours) > 0).map((s) => s.name));
+    names.forEach((n) => { const o = byStaff[n] || (byStaff[n] = { achieved: 0, worked: 0 }); o.worked++; if (ok) o.achieved++; });
+  }
+  return { byStaff, achieved, total };
+}
+
 async function loadMyRecord() {
   if (!state.staffName) return;
   state.myRecordLoading = true;
@@ -495,6 +555,8 @@ async function loadMyRecord() {
       apiGet(`payrollBonus:${mKey}`),
       apiListValues(`slotsConfig:`),
     ]);
+    let budgetStats = { byStaff: {}, achieved: 0, total: 0 };
+    try { budgetStats = computeBudgetStats(await apiListValues(`teijiReport:${mKey}-`)); } catch (e) {}
     const myBonus = (bonuses && Number(bonuses[state.staffName])) || 0;
     const holidays = (cfg && cfg.holidays) || [];
     const dateOverridesM = (cfg && cfg.dateOverrides) || {};
@@ -594,6 +656,7 @@ async function loadMyRecord() {
       bonus: myBonus,
       monthLabel: `${now.getFullYear()}年${now.getMonth() + 1}月`,
       offset: state.myRecordOffset || 0,
+      budget: { storeAchieved: budgetStats.achieved, storeTotal: budgetStats.total, mine: budgetStats.byStaff[state.staffName] || { achieved: 0, worked: 0 } },
     };
   } catch (err) {
     console.error("loadMyRecord failed", err);
@@ -1091,6 +1154,19 @@ function renderAdminTab() {
     ` : ""}
   </div>`;
 
+  const mbd = monthBudgetDays();
+  html += `<div class="card" style="margin-top:12px">
+    <div style="font-size:14px;font-weight:500;margin-bottom:8px">💰 月予算（${state.cursor.getMonth() + 1}月）</div>
+    <label class="field-label">月予算（円）</label>
+    <div style="display:flex;gap:8px;align-items:center">
+      <input type="number" id="monthBudgetInput" value="${state.monthBudget || ""}" placeholder="例：1500000" />
+      <button class="save-btn" style="white-space:nowrap" data-action="saveMonthBudget">保存</button>
+    </div>
+    <p style="font-size:12px;color:var(--muted2);margin:6px 0 0">月予算から日ごとの予算が自動で決まります。1人の日を「1」、2人以上が同時に入る日を「1.5」として按分します（確定前の日は枠の想定人数で計算）。定時報告の予算・予算達成の判定にも使われます。</p>
+    ${mbd.mb > 0 ? `<details style="margin-top:8px"><summary style="cursor:pointer;font-size:13px">日ごとの予算を見る（合計 ${mbd.sum}日分）</summary>
+      <table style="margin-top:6px"><thead><tr><th>日付</th><th>人数</th><th style="text-align:right">日予算</th></tr></thead><tbody>${mbd.rows.map((r) => `<tr><td>${r.d.getMonth() + 1}/${r.d.getDate()}</td><td>${r.w === 1.5 ? "2人以上(1.5)" : r.w === 1 ? "1人(1)" : "-"}</td><td style="text-align:right">${fmtYen(r.budget)}</td></tr>`).join("")}</tbody></table></details>` : ""}
+  </div>`;
+
   html += `<div class="card" style="margin-top:12px">
     <div style="font-size:14px;font-weight:500;margin-bottom:8px">📊 今月の希望・確定回数（${state.cursor.getMonth() + 1}月）</div>
     ${state.staffDirectory.length === 0 ? `<p style="font-size:12px;color:var(--muted2);margin:0">スタッフが登録されていません。</p>` : `
@@ -1276,6 +1352,8 @@ function renderMyRecordTab() {
         <div><div style="font-size:11px;color:var(--muted)">労働時間</div><div style="font-size:20px;font-weight:700">${rec.hoursTotal.toFixed(1)}h</div></div>
         <div><div style="font-size:11px;color:var(--muted)">${rec.offset === 0 ? "現状の給与見込み" : "給与見込み"}</div><div style="font-size:20px;font-weight:700">${fmtYen(rec.wageTotal)}</div></div>
         <div><div style="font-size:11px;color:var(--muted)">遅刻回数</div><div style="font-size:20px;font-weight:700">${rec.lateCount}回</div></div>
+        <div><div style="font-size:11px;color:var(--muted)">予算達成回数（お店全体）</div><div style="font-size:20px;font-weight:700">${rec.budget.storeAchieved}回<span style="font-size:12px;font-weight:400;color:var(--muted)"> / ${rec.budget.storeTotal}日</span></div></div>
+        <div><div style="font-size:11px;color:var(--muted)">自分が入った日の予算達成</div><div style="font-size:20px;font-weight:700">${rec.budget.mine.achieved}回<span style="font-size:12px;font-weight:400;color:var(--muted)"> / ${rec.budget.mine.worked}日</span></div></div>
         ${rec.bonus > 0 ? `<div><div style="font-size:11px;color:var(--muted)">${rec.offset === 0 ? "今月" : "この月"}のボーナス</div><div style="font-size:20px;font-weight:700;color:var(--orange)">${fmtYen(rec.bonus)}</div></div>` : ""}
       </div>
       <p style="font-size:11px;color:var(--muted2);margin-top:8px">給与見込みは、今月これまでの打刻から計算した時給ベースの概算です。実際の支給額とは異なる場合があります。</p>
@@ -1478,6 +1556,7 @@ document.addEventListener("click", (e) => {
     if (state.tab === "myrecord" && !state.myRecord && !state.myRecordLoading) loadMyRecord();
   }
   else if (action === "retryMyRecord") loadMyRecord();
+  else if (action === "saveMonthBudget") saveMonthBudget();
   else if (action === "setMyRecordMonth") { state.myRecordOffset = Number(el.dataset.offset) || 0; loadMyRecord(); }
   else if (action === "toggleSlot") toggleSlot(el.dataset.date, el.dataset.slot);
   else if (action === "submit") submitMyShift();
