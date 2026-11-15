@@ -696,6 +696,7 @@ function renderDetailTab() {
         <div style="font-size:14px;font-weight:700;margin-bottom:8px">📊 ${state.cursor.getFullYear()}年${state.cursor.getMonth() + 1}月のまとめ</div>
         <div class="summary-row">
           <div class="summary-item"><div class="label">希望・シフトイン回数</div><div class="value">${stats.submissionCount}枠</div></div>
+          <div class="summary-item"><div class="label">予定時間</div><div class="value">${stats.scheduledHours.toFixed(1)}h</div></div>
           <div class="summary-item"><div class="label">実績時間</div><div class="value">${stats.actualHours.toFixed(1)}h</div></div>
         </div>
         <div class="summary-row">
@@ -733,6 +734,7 @@ function renderDailyTable(name) {
 
     rows += `<tr>
       <td>${dateLabelHtml(d, weekend)}</td>
+      <td class="num">${scheduledHours > 0 ? scheduledHours.toFixed(1) + "h" : "-"}</td>
       <td class="num">${actualHours > 0 ? actualHours.toFixed(1) + "h" : "-"}</td>
       <td class="num"><button class="remove-btn-plain" onclick="openEditPunch('${dKey}')">修正</button></td>
     </tr>`;
@@ -748,7 +750,7 @@ function renderDailyTable(name) {
           <button class="remove-btn" onclick="removeEditRecord(${i})">削除</button>
         </div>`;
       });
-      rows += `<tr><td colspan="3">
+      rows += `<tr><td colspan="4">
         <div class="card" style="background:#FBF8F2;margin:8px 0">
           <div style="font-size:13px;font-weight:700;margin-bottom:4px">🛠 打刻を修正</div>
           ${recRows || `<p class="note">打刻記録がありません</p>`}
@@ -765,8 +767,8 @@ function renderDailyTable(name) {
     <div style="font-size:14px;font-weight:700;margin-bottom:8px">🗓 日別の記録</div>
     <div class="table-scroll">
       <table>
-        <thead><tr><th>日付</th><th class="num">実績</th><th class="num">修正</th></tr></thead>
-        <tbody>${rows || `<tr><td colspan="3" style="text-align:center;color:var(--muted2)">この月はデータがありません</td></tr>`}</tbody>
+        <thead><tr><th>日付</th><th class="num">予定</th><th class="num">実績</th><th class="num">修正</th></tr></thead>
+        <tbody>${rows || `<tr><td colspan="4" style="text-align:center;color:var(--muted2)">この月はデータがありません</td></tr>`}</tbody>
       </table>
     </div>
   </div>`;
@@ -781,6 +783,7 @@ function renderCompareTab() {
       <td>${esc(s.name)}</td>
       <td class="num">${fmtYen(wageForMonth(s, monthKey(state.cursor)))}</td>
       <td class="num">${stats.submissionCount}枠</td>
+      <td class="num">${stats.scheduledHours.toFixed(1)}h</td>
       <td class="num">${stats.actualHours.toFixed(1)}h</td>
       <td class="num">${(((state.budgetStats || {}).byStaff || {})[s.name] || { achieved: 0, worked: 0 }).achieved}回/${(((state.budgetStats || {}).byStaff || {})[s.name] || { achieved: 0, worked: 0 }).worked}日</td>
       <td class="num">${late.month}回（${lateRate(late.month, late.attMonth)}）</td>
@@ -791,10 +794,10 @@ function renderCompareTab() {
     <div class="table-scroll">
       <table>
         <thead><tr>
-          <th>名前</th><th class="num">時給</th><th class="num">希望/シフトイン</th>
+          <th>名前</th><th class="num">時給</th><th class="num">希望/シフトイン</th><th class="num">予定時間</th>
           <th class="num">実績時間</th><th class="num">予算達成(入った日)</th><th class="num">遅刻</th>
         </tr></thead>
-        <tbody>${rows || `<tr><td colspan="5" style="text-align:center;color:var(--muted2)">スタッフが登録されていません</td></tr>`}</tbody>
+        <tbody>${rows || `<tr><td colspan="6" style="text-align:center;color:var(--muted2)">スタッフが登録されていません</td></tr>`}</tbody>
       </table>
     </div>
     ${state.lateSummaryLoading ? `<p class="note">遅刻回数を集計中…</p>` : ""}
