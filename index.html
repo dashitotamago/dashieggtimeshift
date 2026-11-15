@@ -193,6 +193,7 @@ async function apiSet(key, value) {
       headers: { "Content-Type": "text/plain;charset=utf-8" },
       body: JSON.stringify({ action: "set", key, value: JSON.stringify(value) }),
     });
+    try { Object.keys(localStorage).filter((k) => k.indexOf("shiftB:") === 0).forEach((k) => localStorage.removeItem(k)); } catch (e) {}
     return true;
   } catch (e) { console.error("apiSet failed", key, e); return false; }
 }
@@ -215,6 +216,30 @@ async function apiListValues(prefix) {
     return out;
   } catch (e) { console.error("apiListValues failed", prefix, e); return {}; }
 }
+// まとめて1回で取得(Code.gsのgetMany)。未対応なら並列の個別取得に切り替える
+async function apiBatch(keys, prefixes) {
+  try {
+    const res = await fetch(`${CONFIG.API_URL}?action=getMany&keys=${encodeURIComponent(JSON.stringify(keys))}&prefixes=${encodeURIComponent(JSON.stringify(prefixes))}`);
+    const data = await res.json();
+    if (data && !data.error && data.values) {
+      const values = {}, lists = {};
+      for (const k in data.values) { try { values[k] = JSON.parse(data.values[k]); } catch (e) {} }
+      for (const pf in data.lists || {}) {
+        lists[pf] = {};
+        for (const it of data.lists[pf]) { try { lists[pf][it.key] = JSON.parse(it.value); } catch (e) {} }
+      }
+      return { values, lists };
+    }
+  } catch (e) { console.error("getMany failed, fallback", e); }
+  const values = {}, lists = {};
+  await Promise.all([
+    ...keys.map(async (k) => { const v = await apiGet(k); if (v != null) values[k] = v; }),
+    ...prefixes.map(async (pf) => { lists[pf] = await apiListValues(pf); }),
+  ]);
+  return { values, lists };
+}
+function readCacheB(k) { try { const t = localStorage.getItem("shiftB:" + k); return t ? JSON.parse(t) : null; } catch (e) { return null; } }
+function writeCacheB(k, b) { try { localStorage.setItem("shiftB:" + k, JSON.stringify(b)); } catch (e) {} }
 async function apiAction(payload) {
   try {
     const res = await fetch(CONFIG.API_URL, {
@@ -420,7 +445,7 @@ function dayPlannedHours(slots, dayConf) {
     if (hasConf && !(dayConf || {})[s.id]) continue;
     h += Math.max(0, hmToMinutes(s.end) - hmToMinutes(s.start)) / 60;
   }
-  return round2(h);
+  return Math.round(h * 100) / 100;
 }
 function monthBudgetDays() {
   // 日予算 = 労働時間 × 予算単価。予算単価は、1人の日 r、2人以上の日 r×1.5 とし、月予算 ＝ Σ(労働時間×その日の単価) となるように決める
@@ -498,21 +523,15 @@ async function loadStaffDirectory() {
   state.staffDirectory = normalizeStaffDirectory(list);
 }
 
-async function loadMonthData() {
-  state.loading = true;
-  render();
-  const mKey = monthKey(state.cursor);
-  const [cfg, slotsCfg, conf, staffList, subValues, monthlySlots, monthBudgetVal] = await Promise.all([
-    apiGet(`config:${mKey}`),
-    apiGet(`slotsConfig`),
-    apiGet(`confirmed:${mKey}`),
-    apiGet(`staffList`),
-    apiListValues(`submission:${mKey}:`),
-    apiListValues(`slotsConfig:`),
-    apiGet(`monthBudget:${mKey}`),
-  ]);
-  state.monthBudget = Number(monthBudgetVal) || 0;
-  state.staffDirectory = normalizeStaffDirectory(staffList);
+let _monthLoadSeq = 0;
+async function applyMonthBatch(b, mKey) {
+  const v = b.values || {}, l = b.lists || {};
+  const monthlySlots = l["slotsConfig:"] || {};
+  const cfg = v["config:" + mKey] || null;
+  state.monthBudget = Number(v["monthBudget:" + mKey]) || 0;
+  state.staffDirectory = normalizeStaffDirectory(v["staffList"] || null);
+  if (v["adminPassword"] != null) state.adminPasswordValue = v["adminPassword"];
+  const subValues = l[`submission:${mKey}:`] || {};
   let subs = {};
   for (const key in subValues) {
     const name = key.split(":").slice(2).join(":");
@@ -523,12 +542,31 @@ async function loadMonthData() {
   state.dateOverrides = (cfg && cfg.dateOverrides) || {};
   state.slotsOwn = !!monthlySlots["slotsConfig:" + mKey];
   state.slotsSnapshot = await resolveSlotsFor(mKey, cfg, monthlySlots);
+  const slotsCfg = v["slotsConfig"] || null;
   state.weekdaySlots = pickSlots("weekday", state.slotsSnapshot, slotsCfg);
   state.holidaySlots = pickSlots("holiday", state.slotsSnapshot, slotsCfg);
   state.holidayEndSlots = pickSlots("holidayEnd", state.slotsSnapshot, slotsCfg);
-  state.confirmed = conf || {};
+  state.confirmed = v["confirmed:" + mKey] || {};
   state.allSubmissions = subs;
   state.mySubmission = state.staffName && subs[state.staffName] ? subs[state.staffName] : {};
+}
+async function loadMonthData() {
+  const mKey = monthKey(state.cursor);
+  const seq = ++_monthLoadSeq;
+  const ck = "month:" + mKey;
+  // 前回の内容があれば先に表示(裏で最新に更新)
+  const cached = readCacheB(ck);
+  if (cached) {
+    try { await applyMonthBatch(cached, mKey); state.loading = false; render(); } catch (e) { state.loading = true; render(); }
+  } else { state.loading = true; render(); }
+  const b = await apiBatch(
+    [`config:${mKey}`, `slotsConfig`, `confirmed:${mKey}`, `staffList`, `monthBudget:${mKey}`, `adminPassword`],
+    [`submission:${mKey}:`, `slotsConfig:`]
+  );
+  if (seq !== _monthLoadSeq) return; // 月が切り替わった・再読込済み
+  writeCacheB(ck, { values: { ...b.values, adminPassword: undefined }, lists: b.lists });
+  if (state.saving) { state.loading = false; return; }
+  await applyMonthBatch(b, mKey);
   state.loading = false;
   render();
 }
@@ -563,15 +601,15 @@ async function loadMyRecord() {
     const realNow = new Date();
     const now = new Date(realNow.getFullYear(), realNow.getMonth() - (state.myRecordOffset || 0), 1);
     const mKey = monthKey(now);
-    const [cfg, slotsCfg, conf, bonuses, monthlyMap] = await Promise.all([
-      apiGet(`config:${mKey}`),
-      apiGet(`slotsConfig`),
-      apiGet(`confirmed:${mKey}`),
-      apiGet(`payrollBonus:${mKey}`),
-      apiListValues(`slotsConfig:`),
-    ]);
+    const mb = await apiBatch(
+      [`config:${mKey}`, `slotsConfig`, `confirmed:${mKey}`, `payrollBonus:${mKey}`],
+      [`slotsConfig:`, `teijiReport:${mKey}-`, `punch:${mKey}`]
+    );
+    const cfg = mb.values[`config:${mKey}`] || null, slotsCfg = mb.values["slotsConfig"] || null;
+    const conf = mb.values[`confirmed:${mKey}`] || null, bonuses = mb.values[`payrollBonus:${mKey}`] || null;
+    const monthlyMap = mb.lists["slotsConfig:"] || {};
     let budgetStats = { byStaff: {}, achieved: 0, total: 0 };
-    try { budgetStats = computeBudgetStats(await apiListValues(`teijiReport:${mKey}-`)); } catch (e) {}
+    try { budgetStats = computeBudgetStats(mb.lists[`teijiReport:${mKey}-`] || {}); } catch (e) {}
     const myBonus = (bonuses && Number(bonuses[state.staffName])) || 0;
     const holidays = (cfg && cfg.holidays) || [];
     const dateOverridesM = (cfg && cfg.dateOverrides) || {};
@@ -612,7 +650,7 @@ async function loadMyRecord() {
     }
     const confirmedTotal = confirmedFirstHalf + confirmedSecondHalf;
 
-    const punchValues = await apiListValues(`punch:${mKey}`);
+    const punchValues = mb.lists[`punch:${mKey}`] || {};
     const recordsByDate = {};
     for (const key in punchValues) {
       const parts = key.split(":");
@@ -959,7 +997,10 @@ async function changeMyPassword() {
 }
 
 function changeMonth(delta) {
-  state.cursor = new Date(state.cursor.getFullYear(), state.cursor.getMonth() + delta, 1);
+  const nc = new Date(state.cursor.getFullYear(), state.cursor.getMonth() + delta, 1);
+  const min = new Date(new Date().getFullYear(), new Date().getMonth() - 6, 1);
+  if (nc < min) { flash("6か月より前のデータは退避済みのため表示できません"); return; }
+  state.cursor = nc;
   loadMonthData();
 }
 
@@ -1632,23 +1673,21 @@ window.addEventListener("hashchange", () => {
 // ---- boot ----
 (async function init() {
   if (!CONFIG.API_URL || CONFIG.API_URL.indexOf("YOUR_APPS_SCRIPT") === 0) { render(); return; }
+  const needMonth = state.route === "admin" ? state.adminAuthed : state.staffAuthed;
+  if (needMonth) {
+    // ログイン済み: 月のデータ(スタッフ名簿・管理者パスワード込み)を1回でまとめて取得
+    if (state.route === "admin") { loadMonthData(); }
+    else { loadMonthData().then(() => { if (!state.staffDirectory.find((s) => s.name === state.staffName)) { state.staffAuthed = false; render(); } }); loadMyRecord(); }
+    return;
+  }
   state.loading = true;
   render();
-  const storedPw = await apiGet("adminPassword");
-  state.adminPasswordValue = storedPw != null ? storedPw : null;
-  await loadStaffDirectory();
-  if (state.route === "admin") {
-    if (state.adminAuthed) { loadMonthData(); } else { state.loading = false; render(); }
-  } else {
-    if (state.staffAuthed && state.staffDirectory.find((s) => s.name === state.staffName)) {
-      loadMonthData();
-      loadMyRecord();
-    } else {
-      state.staffAuthed = false;
-      state.loading = false;
-      render();
-    }
-  }
+  const b = await apiBatch(["adminPassword", "staffList"], []);
+  state.adminPasswordValue = b.values["adminPassword"] != null ? b.values["adminPassword"] : null;
+  state.staffDirectory = normalizeStaffDirectory(b.values["staffList"] || null);
+  state.staffAuthed = false;
+  state.loading = false;
+  render();
 })();
 </script>
 </body>
