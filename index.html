@@ -419,24 +419,33 @@ function slotsForDate(d) {
 }
 // ---- 月予算 → 日ごとの予算(自動配分) ----
 // 1人の日を1、2人以上が同時に入る日を1.5として月予算を按分する。確定シフトが未登録の日は、枠の想定人数で判定する。
-function dayBudgetWeight(slots, dayConf) {
-  if (!slots || !slots.length) return 0;
+// ---- 日予算の係数 ----
+//  1日の労働人数(同時に入る最大人数): 1人=1倍、2人=1.5倍、3人以上=1.3倍
+//  シフト終了後(その日の最後のスタッフの予定終了時刻より後)に働いた時間は、その日の1時間あたり予算の0.8倍で計算する
+const LATE_BUDGET_MULT = 0.8;
+function weightForPeople(n) { return n <= 0 ? 0 : n === 1 ? 1 : n === 2 ? 1.5 : 1.3; }
+function dayBudgetItems(slots, dayConf) {
   const hasConf = Object.values(dayConf || {}).some(Boolean);
   const items = [];
-  for (const s of slots) {
+  for (const s of slots || []) {
     const name = hasConf ? (dayConf || {})[s.id] : "slot:" + s.id;
     if (!name) continue;
     const st = hmToMinutes(s.start), en = hmToMinutes(s.end);
     if (en > st) items.push({ name, st, en });
   }
-  if (!items.length) return 0;
-  for (let i = 0; i < items.length; i++) {
-    for (let j = i + 1; j < items.length; j++) {
-      if (items[i].name !== items[j].name && Math.min(items[i].en, items[j].en) > Math.max(items[i].st, items[j].st)) return 1.5;
-    }
-  }
-  return 1;
+  return items;
 }
+function dayBudgetPeople(slots, dayConf) {
+  const items = dayBudgetItems(slots, dayConf);
+  let max = 0;
+  for (const a of items) {
+    const names = new Set();
+    for (const b of items) if (b.st <= a.st && a.st < b.en) names.add(b.name);
+    if (names.size > max) max = names.size;
+  }
+  return max;
+}
+function dayBudgetWeight(slots, dayConf) { return weightForPeople(dayBudgetPeople(slots, dayConf)); }
 function dayPlannedHours(slots, dayConf) {
   // その日の予定労働時間(確定シフトの合計。確定前の日は枠の合計)
   const hasConf = Object.values(dayConf || {}).some(Boolean);
@@ -448,7 +457,8 @@ function dayPlannedHours(slots, dayConf) {
   return Math.round(h * 100) / 100;
 }
 function monthBudgetDays() {
-  // 日予算 = 労働時間 × 予算単価。予算単価は、1人の日 r、2人以上の日 r×1.5 とし、月予算 ＝ Σ(労働時間×その日の単価) となるように決める
+  // 日予算 = 予算単価 × その日の予定労働時間。労働人数が 1人=1倍 / 2人=1.5倍 / 3人以上=1.3倍。
+  // 月予算 ＝ Σ(日予算) となるように予算単価を決める。シフト終了後に延長した時間は、定時報告で単価0.8倍として加わる
   const dates = daysInMonth(state.cursor.getFullYear(), state.cursor.getMonth());
   const mb = Number(state.monthBudget) || 0;
   const rows = [];
@@ -457,12 +467,14 @@ function monthBudgetDays() {
     const k = dateKey(d);
     const slots = slotsForDate(d);
     const dayConf = state.confirmed[k] || {};
-    const w = dayBudgetWeight(slots, dayConf);
+    const people = dayBudgetPeople(slots, dayConf);
+    const w = weightForPeople(people);
     const h = dayPlannedHours(slots, dayConf);
-    rows.push({ d, k, w, h }); sum += w * h;
+    rows.push({ d, k, people, w, h, late: 0 });
+    sum += w * h;
   }
   const base = mb > 0 && sum > 0 ? mb / sum : 0;
-  for (const r of rows) { r.rate = base * r.w; r.budget = Math.round(r.h * r.rate); }
+  for (const r of rows) { r.rate = base * r.w; r.budget = Math.round(r.rate * r.h); }
   return { rows, sum, mb, base };
 }
 async function saveMonthBudget() {
@@ -1249,9 +1261,9 @@ function renderAdminTab() {
       <input type="number" id="monthBudgetInput" value="${state.monthBudget || ""}" placeholder="例：1500000" />
       <button class="save-btn" style="white-space:nowrap" data-action="saveMonthBudget">保存</button>
     </div>
-    <p style="font-size:12px;color:var(--muted2);margin:6px 0 0">日予算 ＝ 労働時間 × 1時間あたりの予算（予算単価）です。予算単価は、月予算が月の労働時間の合計にちょうど配分されるように自動で決まり、2人以上が同時に入る日は1人の日の1.5倍になります（確定前の日は枠の想定人数・時間で計算）。定時報告の予算・予算達成の判定にも使われます。</p>
+    <p style="font-size:12px;color:var(--muted2);margin:6px 0 0">日予算 ＝ 労働時間 × 1時間あたりの予算（予算単価）です。予算単価は、月予算が月の労働時間の合計にちょうど配分されるように自動で決まります。1日の労働人数が、1人なら1倍・2人なら1.5倍・3人以上なら1.3倍です。シフト終了後に延長した時間（定時報告で労働時間を増やした分）は、その日の単価の0.8倍で計算します（確定前の日は枠の想定人数・時間で計算）。定時報告の予算・予算達成の判定にも使われます。</p>
     ${mbd.mb > 0 ? `<details style="margin-top:8px"><summary style="cursor:pointer;font-size:13px">日ごとの予算を見る（1人の日の単価 ${fmtYen(mbd.base)}/h）</summary>
-      <table style="margin-top:6px"><thead><tr><th>日付</th><th>人数</th><th style="text-align:right">労働時間</th><th style="text-align:right">単価</th><th style="text-align:right">日予算</th></tr></thead><tbody>${mbd.rows.map((r) => `<tr><td>${r.d.getMonth() + 1}/${r.d.getDate()}</td><td>${r.w === 1.5 ? "2人以上(1.5)" : r.w === 1 ? "1人(1)" : "-"}</td><td style="text-align:right">${r.h}h</td><td style="text-align:right">${r.w ? fmtYen(r.rate) : "-"}</td><td style="text-align:right">${fmtYen(r.budget)}</td></tr>`).join("")}</tbody></table></details>` : ""}
+      <table style="margin-top:6px"><thead><tr><th>日付</th><th>人数</th><th style="text-align:right">労働時間</th><th style="text-align:right">単価</th><th style="text-align:right">日予算</th></tr></thead><tbody>${mbd.rows.map((r) => `<tr><td>${r.d.getMonth() + 1}/${r.d.getDate()}</td><td>${r.people >= 3 ? "3人以上(1.3)" : r.people === 2 ? "2人(1.5)" : r.people === 1 ? "1人(1)" : "-"}</td><td style="text-align:right">${r.h}h</td><td style="text-align:right">${r.w ? fmtYen(r.rate) : "-"}</td><td style="text-align:right">${fmtYen(r.budget)}</td></tr>`).join("")}</tbody></table></details>` : ""}
   </div>`;
 
   html += `<div class="card" style="margin-top:12px">
@@ -1499,7 +1511,7 @@ function renderReportTab() {
     <div style="font-size:14px;font-weight:700;margin-bottom:12px">👥 確定シフト一覧</div>
     <div style="margin-bottom:12px;padding:10px 12px;border-radius:8px;background:rgba(47,111,78,.08);font-size:14px;font-weight:700">💰 今月の予算達成：${fOk}回 <span style="font-weight:400;font-size:12px;color:var(--muted)">／ クローズ報告 ${fKeys.length}日分（実際の労働時間×予算単価を売上が上回った日）</span></div>
     <table><thead><tr><th>日付</th><th>担当</th><th style="text-align:right">日予算</th><th>予算達成</th>${showCost ? "<th>人件費</th>" : ""}</tr></thead><tbody>${rows}</tbody></table>
-    ${mbd.mb > 0 ? `<p style="font-size:11px;color:var(--muted2);margin-top:8px">日予算 ＝ その日の予定労働時間 × 1時間あたりの予算（1人の日 ${fmtYen(mbd.base)}/h、2人以上の日 ${fmtYen(mbd.base * 1.5)}/h）</p>` : `<p style="font-size:11px;color:var(--muted2);margin-top:8px">月予算が未設定です</p>`}
+    ${mbd.mb > 0 ? `<p style="font-size:11px;color:var(--muted2);margin-top:8px">日予算 ＝ その日の予定労働時間 × 1時間あたりの予算（1人 ${fmtYen(mbd.base)}/h、2人 ${fmtYen(mbd.base * 1.5)}/h、3人以上 ${fmtYen(mbd.base * 1.3)}/h。シフト終了後の延長分は×0.8）</p>` : `<p style="font-size:11px;color:var(--muted2);margin-top:8px">月予算が未設定です</p>`}
     ${showCost ? `<div class="grand-total">今月の人件費合計：${fmtYen(monthTotal)}</div>` : ""}
   </div>`;
 }
@@ -1650,7 +1662,7 @@ function render() {
       </div>
       ${body}
     </div>
-    <div class="footer-note">入力・確定内容はスタッフ全員が閲覧できる共有データ（Googleスプレッドシート）として保存されます。<br>画面バージョン：2026-11-15 23:10（予算達成・日予算・前半後半内訳つき）</div>
+    <div class="footer-note">入力・確定内容はスタッフ全員が閲覧できる共有データ（Googleスプレッドシート）として保存されます。<br>画面バージョン：2026-11-16 17:30（予算：人数係数1/1.5/1.3・シフト終了後は0.8倍）</div>
   `;
 }
 
