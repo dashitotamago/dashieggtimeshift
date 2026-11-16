@@ -261,24 +261,39 @@ function wageOf(name) {
 
 // ---- 月予算 → 日ごとの予算(自動配分) ----
 // 1人の日を1、2人以上が同時に入る日を1.5として月予算を按分する。確定シフトが未登録の日は、枠の想定人数で判定する。
-function dayBudgetWeight(slots, dayConf) {
-  if (!slots || !slots.length) return 0;
+// ---- 日予算の係数 ----
+//  1日の労働人数(同時に入る最大人数): 1人=1倍、2人=1.5倍、3人以上=1.3倍
+//  シフト終了後(その日の最後のスタッフの予定終了時刻より後)に働いた時間は、その日の1時間あたり予算の0.8倍で計算する
+const LATE_BUDGET_MULT = 0.8;
+function weightForPeople(n) { return n <= 0 ? 0 : n === 1 ? 1 : n === 2 ? 1.5 : 1.3; }
+function dayBudgetItems(slots, dayConf) {
   const hasConf = Object.values(dayConf || {}).some(Boolean);
   const items = [];
-  for (const s of slots) {
+  for (const s of slots || []) {
     const name = hasConf ? (dayConf || {})[s.id] : "slot:" + s.id;
     if (!name) continue;
     const st = hmToMinutes(s.start), en = hmToMinutes(s.end);
     if (en > st) items.push({ name, st, en });
   }
-  if (!items.length) return 0;
-  for (let i = 0; i < items.length; i++) {
-    for (let j = i + 1; j < items.length; j++) {
-      if (items[i].name !== items[j].name && Math.min(items[i].en, items[j].en) > Math.max(items[i].st, items[j].st)) return 1.5;
-    }
-  }
-  return 1;
+  return items;
 }
+function dayLastEnd(slots, dayConf) {
+  const items = dayBudgetItems(slots, dayConf);
+  if (!items.length) return "";
+  const m = Math.max(...items.map((i) => i.en));
+  return String(Math.floor(m / 60)).padStart(2, "0") + ":" + String(m % 60).padStart(2, "0");
+}
+function dayBudgetPeople(slots, dayConf) {
+  const items = dayBudgetItems(slots, dayConf);
+  let max = 0;
+  for (const a of items) {
+    const names = new Set();
+    for (const b of items) if (b.st <= a.st && a.st < b.en) names.add(b.name);
+    if (names.size > max) max = names.size;
+  }
+  return max;
+}
+function dayBudgetWeight(slots, dayConf) { return weightForPeople(dayBudgetPeople(slots, dayConf)); }
 function dayPlannedHours(slots, dayConf) {
   // その日の予定労働時間(確定シフトの合計。確定前の日は枠の合計)
   const hasConf = Object.values(dayConf || {}).some(Boolean);
@@ -290,42 +305,51 @@ function dayPlannedHours(slots, dayConf) {
   return round2(h);
 }
 // 月予算 → 予算単価(円/時) → 日予算。
-//  日予算 = 労働時間 × 予算単価。予算単価は、1人の日を r、2人以上が同時に入る日を r×1.5 として、
-//  月の「労働時間×係数(1または1.5)」の合計で月予算を割って決める(月予算 ＝ 各日の労働時間×その日の単価の合計)。
+//  日予算 ＝ 予算単価 ×(予定の労働時間 ＋ シフト終了後に延長した時間×0.8)。
+//  予算単価は、1人の日を r、2人の日を r×1.5、3人以上の日を r×1.3 として、月の「係数×予定の労働時間」の合計で月予算を割って決める。
 function monthBudgetInfo() {
   const [y, m] = state.targetDate.split("-").map(Number);
-  let sum = 0, wT = 0, hT = 0;
+  let sum = 0, wT = 0, pT = 0, hT = 0, nT = 0, lT = 0, lastEndT = "";
   const d = new Date(y, m - 1, 1);
   while (d.getMonth() === m - 1) {
     const k = dateKey(d);
     const slots = slotsForDate(d);
     const dayConf = (state.confirmedMonth || {})[k] || {};
-    const w = dayBudgetWeight(slots, dayConf);
+    const people = dayBudgetPeople(slots, dayConf);
+    const w = weightForPeople(people);
     const h = dayPlannedHours(slots, dayConf);
     sum += w * h;
-    if (k === state.targetDate) { wT = w; hT = h; }
+    if (k === state.targetDate) { wT = w; pT = people; nT = h; lT = 0; hT = h; lastEndT = dayLastEnd(slots, dayConf); }
     d.setDate(d.getDate() + 1);
   }
   const mb = Number(state.monthBudget) || 0;
   const base = mb > 0 && sum > 0 ? mb / sum : 0;
-  return { weight: wT, hours: hT, sum, baseRate: base, rate: base * wT };
+  return { weight: wT, people: pT, hours: hT, normal: nT, late: lT, lastEnd: lastEndT, sum, baseRate: base, rate: base * wT };
 }
 // 日予算の計算に使う「労働時間」と「予算単価」(定時報告の内容を反映)
-//  ・労働時間 ＝ その日の予定労働時間 ＋ (報告の人数・時間の修正による増減)
-//  ・単価 ＝ 2人の日でも、報告上の人数が2人未満(減った/0hの人がいる)なら1人の単価を使う
+//  ・労働時間 ＝ その日の予定労働時間 ＋ (報告の人数・時間の修正による増減)。増えた分は「シフト終了後の延長」として単価0.8倍、減った分は通常の単価で差し引く
+//  ・単価 ＝ 予定の人数と、報告上の人数(時間が0より大きい人)の少ないほうで係数を決める(減った/0hの人がいれば少ない人数の係数)
 function budgetCalc() {
   const g = monthBudgetInfo();
-  let hours = g.hours + (cumulativeHoursTotal() - calculatedLaborHours());
-  if (!(hours > 0)) hours = 0;
-  hours = round2(hours);
+  const delta = cumulativeHoursTotal() - calculatedLaborHours();
+  let normal = g.hours, late = 0;
+  if (delta > 0) late = delta; else normal = Math.max(0, g.hours + delta);
+  normal = round2(normal); late = round2(late);
   const present = cumulativeStaffList().length; // 時間が0より大きいスタッフの人数
-  let mult = g.weight === 1.5 ? (present >= 2 ? 1.5 : 1) : (g.weight === 1 ? 1 : (present >= 2 ? 1.5 : present === 1 ? 1 : 0));
+  const people = g.people > 0 ? Math.min(g.people, present) : present;
+  const mult = weightForPeople(people);
   const rate = g.baseRate * mult;
-  return { hours, rate, mult, planned: g.hours, weight: g.weight, baseRate: g.baseRate };
+  return { hours: round2(normal + late), normal, late, rate, mult, people, planned: g.hours, weight: g.weight, plannedPeople: g.people, baseRate: g.baseRate };
+}
+function budgetBreakdownText() {
+  const c = budgetCalc();
+  const r = Math.round(c.rate);
+  if (c.late > 0) return `${fmtH(c.normal)}h×${fmtNum(r)}円＋延長${fmtH(c.late)}h×${fmtNum(Math.round(c.rate * LATE_BUDGET_MULT))}円`;
+  return `${fmtH(c.hours)}h×${fmtNum(r)}円`;
 }
 function effectiveBudget() {
   const c = budgetCalc();
-  return Math.round(c.hours * c.rate);
+  return Math.round(c.rate * (c.normal + LATE_BUDGET_MULT * c.late));
 }
 // ---- レジ締め後売上 ----
 //  クローズ報告の「レジ締め後売上」は今日の売上に合算し、翌日の売上からは差し引く(レジの数字には翌日分として入るため)
@@ -343,7 +367,8 @@ function unitInfo() {
   const hours = totalLaborHours();
   const sales = effSales();
   const salesUnit = hours > 0 ? sales / hours : 0;
-  return { budget, planned: g.planned, budgetUnit: g.rate, hours, sales, salesUnit, ok: g.rate > 0 && salesUnit >= g.rate };
+  const budgetUnit = g.hours > 0 ? budget / g.hours : g.rate; // 16:30以降の0.8倍を含めた、1時間あたりの平均予算
+  return { budget, planned: g.planned, budgetUnit, hours, sales, salesUnit, ok: budgetUnit > 0 && salesUnit >= budgetUnit };
 }
 async function saveMonthBudget(value) {
   state.monthBudget = Number(value) || 0;
@@ -704,7 +729,7 @@ function generateReportText() {
   const lines = [
     title,
     `売上（税抜）：${fmtNum(sales)}${afterCloseToday() > 0 ? `（レジ締め後売上 ${fmtNum(afterCloseToday())}円を含む）` : ""}`,
-    `予算：${fmtNum(budget)}（${fmtH(budgetCalc().hours)}h×${fmtNum(Math.round(budgetCalc().rate))}円）`,
+    `予算：${fmtNum(budget)}（${budgetBreakdownText()}）`,
     `予算達成率：${achieveRate.toFixed(1)}%`,
     `人件費：${fmtNum(labor)}`,
     `労働時間：${fmtH(hours)}時間`,
@@ -831,8 +856,8 @@ function render() {
         <div class="summary-row">
           <div class="summary-item"><div class="label">${state.targetDate.slice(0, 7).replace("-", "年")}月の月予算</div><div class="value">${state.monthBudget ? fmtYen(state.monthBudget) : "未設定"}</div></div>
         </div>
-        <p class="note">月予算は「シフト管理」サイトの管理者画面（💰 月予算）で入力します。日予算 ＝ 労働時間 × 1時間あたりの予算（予算単価）です。予算単価は、月予算が月の労働時間の合計にちょうど配分されるように自動で決まり、2人以上が同時に入る日は1人の日の1.5倍になります。</p>
-        ${(() => { const g = budgetCalc(); return `<p class="note" style="font-weight:700;color:var(--ink)">この日：${g.mult === 1.5 ? "2人以上（単価×1.5）" : g.mult === 1 ? (g.weight === 1.5 ? "人数が減ったため1人の単価" : "1人") : "シフトなし"} ／ ${fmtH(g.hours)}h × ${fmtYen(g.rate)} ＝ 日予算 ${fmtYen(effectiveBudget())}</p>`; })()}
+        <p class="note">月予算は「シフト管理」サイトの管理者画面（💰 月予算）で入力します。日予算 ＝ 労働時間 × 1時間あたりの予算（予算単価）です。予算単価は、月予算が月の労働時間の合計にちょうど配分されるように自動で決まります。1日の労働人数が、1人なら1倍・2人なら1.5倍・3人以上なら1.3倍で、シフト終了後に延長した時間（定時報告で労働時間を増やした分）は、その日の単価の0.8倍で計算します。</p>
+        ${(() => { const g = budgetCalc(); return `<p class="note" style="font-weight:700;color:var(--ink)">この日：${g.mult === 1.5 ? "2人（単価×1.5）" : g.mult === 1.3 ? "3人以上（単価×1.3）" : g.mult === 1 ? (g.weight > 1 ? "人数が減ったため少ない人数の単価（×1）" : "1人（×1）") : "シフトなし"} ／ ${budgetBreakdownText()} ＝ 日予算 ${fmtYen(effectiveBudget())}</p>`; })()}
         <div class="summary-row">
           <div class="summary-item"><div class="label">適用中の予算（日予算）</div><div class="value">${fmtYen(effectiveBudget())}</div></div>
           <div class="summary-item"><div class="label">現在の売上</div><div class="value">${fmtYen(effSales())}</div></div>
