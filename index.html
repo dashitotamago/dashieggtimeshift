@@ -526,7 +526,7 @@ function normalizeStaffDirectory(raw) {
   return raw.map((item) =>
     typeof item === "string"
       ? { name: item, wage: 0, password: "", wageHistory: [] }
-      : { name: item.name, wage: Number(item.wage) || 0, password: item.password || "", wageHistory: Array.isArray(item.wageHistory) ? item.wageHistory : [] }
+      : { name: item.name, wage: Number(item.wage) || 0, password: item.password || "", insurance: !!item.insurance, wageHistory: Array.isArray(item.wageHistory) ? item.wageHistory : [] }
   );
 }
 
