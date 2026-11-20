@@ -86,7 +86,7 @@ function normalizeStaffDirectory(raw) {
   return raw.map((item) =>
     typeof item === "string"
       ? { name: item, wage: 0, wageHistory: [] }
-      : { name: item.name, wage: Number(item.wage) || 0, wageHistory: Array.isArray(item.wageHistory) ? item.wageHistory : [] }
+      : { name: item.name, wage: Number(item.wage) || 0, insurance: !!item.insurance, wageHistory: Array.isArray(item.wageHistory) ? item.wageHistory : [] }
   );
 }
 function wageForMonth(s, mKey) {
@@ -109,6 +109,7 @@ const state = {
   loading: true,
   wageOverrides: {},
   bonuses: {},
+  insRate: 0.5, // 雇用保険料率(労働者負担, %)
   staffDirectory: [],
   rows: [],
   dailyByDate: {}, // dateStr -> { name -> hours }
@@ -171,12 +172,13 @@ function monthTooOld(d) {
 async function loadPayroll() {
   state.loading = true; render();
   const mKey = monthKey(state.cursor);
-  const pb = await apiBatch(["staffList", `payrollWageOverride:${mKey}`, `payrollBonus:${mKey}`], [`punch:${mKey}`]);
+  const pb = await apiBatch(["staffList", `payrollWageOverride:${mKey}`, `payrollBonus:${mKey}`, "employmentInsuranceRate"], [`punch:${mKey}`]);
   const list = pb.values["staffList"] || null, punchValues = pb.lists[`punch:${mKey}`] || {};
   const overrides = pb.values[`payrollWageOverride:${mKey}`] || null, bonuses = pb.values[`payrollBonus:${mKey}`] || null;
   state.staffDirectory = normalizeStaffDirectory(list);
   state.wageOverrides = overrides || {};
   state.bonuses = bonuses || {};
+  { const r = Number(pb.values["employmentInsuranceRate"]); state.insRate = isFinite(r) && pb.values["employmentInsuranceRate"] != null ? r : 0.5; }
 
   // key format: punch:YYYY-MM-DD:name
   const parsed = Object.keys(punchValues)
@@ -250,7 +252,9 @@ async function loadPayroll() {
     const openCloseBonusPay = openCloseCount * (2 / 60) * wage;
     const wageCost = hours * wage + openCloseBonusPay;
     const bonus = Number(state.bonuses[s.name]) || 0;
-    rows.push({ name: s.name, days, hours, wageCost, bonus, openCloseCount, total: wageCost + bonus });
+    const insurance = !!s.insurance;
+    const insFee = insurance ? Math.round((wageCost + bonus) * (Number(state.insRate) || 0) / 100) : 0;
+    rows.push({ name: s.name, days, hours, wageCost, bonus, openCloseCount, insurance, insFee, total: wageCost + bonus - insFee });
   }
   state.rows = rows;
   state.loading = false;
@@ -339,6 +343,15 @@ async function saveWageForMonth(name, newWageValue) {
   loadPayroll();
 }
 
+async function saveInsRate(v) {
+  const n = Number(v);
+  if (!isFinite(n) || n < 0) return;
+  state.saving = true; render();
+  await apiSet("employmentInsuranceRate", n);
+  state.insRate = n;
+  state.saving = false;
+  loadPayroll();
+}
 async function saveBonusForMonth(name, newBonusValue) {
   const mKey = monthKey(state.cursor);
   const trimmed = String(newBonusValue).trim();
@@ -489,6 +502,7 @@ function render() {
         <td class="num">${r.hours.toFixed(1)}h</td>
         <td class="num">${fmtYen(r.wageCost)}</td>
         <td class="num">${r.bonus ? fmtYen(r.bonus) : "-"}</td>
+        <td class="num">${r.insurance ? "−" + fmtYen(r.insFee) : "-"}</td>
         <td class="num" style="font-weight:700">${fmtYen(r.total)}</td>
       </tr>`;
     }
@@ -497,9 +511,9 @@ function render() {
         <table>
           <thead><tr>
             <th>名前</th><th class="num">出勤日数</th><th class="num">合計時間</th>
-            <th class="num">給与</th><th class="num">ボーナス</th><th class="num">振込額</th>
+            <th class="num">給与</th><th class="num">ボーナス</th><th class="num">雇用保険料</th><th class="num">振込額</th>
           </tr></thead>
-          <tbody>${rowsHtml || `<tr><td colspan="6" style="text-align:center;color:var(--muted2)">データがありません</td></tr>`}</tbody>
+          <tbody>${rowsHtml || `<tr><td colspan="7" style="text-align:center;color:var(--muted2)">データがありません</td></tr>`}</tbody>
         </table>
         <div class="grand-total">今月の支払総額：${fmtYen(grand)}</div>
         <p class="note">打刻データ（出勤〜退勤、休憩を除く実労働時間）と、スタッフ設定の時給・ボーナスから自動計算しています。各日、その日最初に出勤打刻した人・最後に退勤打刻した人には、時給の2分相当を給与に上乗せしています（打刻上の実労働時間そのものは変更していません）。</p>
@@ -520,6 +534,16 @@ function render() {
           </div>
         `;
         }).join("") || `<p class="note">スタッフが登録されていません。</p>`}
+      </div>
+
+      <div class="card">
+        <div style="font-size:14px;font-weight:700;margin-bottom:4px">🛡 雇用保険料率</div>
+        <p class="note" style="margin-top:0">従業員管理で「雇用保険用」にしたスタッフだけ、（給与＋ボーナス）×この料率を振込額から控除します。料率は年度で変わるので、最新の労働者負担率を入れてください。</p>
+        <div style="display:flex;align-items:center;gap:8px;margin-top:8px">
+          <input type="number" id="insRateInput" step="0.01" min="0" value="${state.insRate}" style="width:110px;border:1px solid var(--border);border-radius:6px;padding:8px;font-size:14px" />
+          <span style="font-size:12px;color:var(--muted)">%</span>
+          <button class="submit-btn" style="width:auto;margin-top:0;padding:8px 14px" onclick="saveInsRate(document.getElementById('insRateInput').value)">保存</button>
+        </div>
       </div>
 
       <div class="card">
@@ -566,6 +590,7 @@ window.changeRangeEnd = changeRangeEnd;
 window.copyDailyText = copyDailyText;
 window.saveWageForMonth = saveWageForMonth;
 window.saveBonusForMonth = saveBonusForMonth;
+window.saveInsRate = saveInsRate;
 
 (async function boot() {
   if (state.authed) {
