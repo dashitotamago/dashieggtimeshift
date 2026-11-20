@@ -209,7 +209,7 @@ function normalizeStaffDirectory(raw) {
   return raw.map((item) =>
     typeof item === "string"
       ? { name: item, wage: 0, password: "", wageHistory: [] }
-      : { name: item.name, wage: Number(item.wage) || 0, password: item.password || "", wageHistory: Array.isArray(item.wageHistory) ? item.wageHistory : [] }
+      : { name: item.name, wage: Number(item.wage) || 0, password: item.password || "", insurance: !!item.insurance, wageHistory: Array.isArray(item.wageHistory) ? item.wageHistory : [] }
   );
 }
 function wageForMonth(s, mKey) {
@@ -566,13 +566,14 @@ async function saveStaffAccount() {
   const nameInput = document.getElementById("staffNameField").value.trim();
   const pwInput = document.getElementById("staffPasswordField").value;
   const wageInput = Number(document.getElementById("staffWageField").value) || 0;
+  const insuranceInput = document.getElementById("staffPayTypeField").value === "insurance";
   if (!nameInput) { flash("名前を入力してください"); return; }
 
   const nowMKey = monthKey(new Date());
   const existingIdx = state.staffDirectory.findIndex((s) => s.name === (state.isNewStaff ? nameInput : state.selectedName));
   let newDirectory;
   if (existingIdx === -1) {
-    newDirectory = [...state.staffDirectory, { name: nameInput, password: pwInput, wage: wageInput, wageHistory: [{ wage: wageInput, from: nowMKey }] }];
+    newDirectory = [...state.staffDirectory, { name: nameInput, password: pwInput, wage: wageInput, insurance: insuranceInput, wageHistory: [{ wage: wageInput, from: nowMKey }] }];
   } else {
     newDirectory = state.staffDirectory.map((s, i) => {
       if (i !== existingIdx) return s;
@@ -583,7 +584,7 @@ async function saveStaffAccount() {
         if (idx !== -1) history[idx] = { wage: wageInput, from: nowMKey };
         else history.push({ wage: wageInput, from: nowMKey });
       }
-      return { name: nameInput, password: pwInput, wage: wageInput, wageHistory: history };
+      return { name: nameInput, password: pwInput, wage: wageInput, insurance: insuranceInput, wageHistory: history };
     });
   }
   state.saving = true; render();
@@ -667,6 +668,11 @@ function renderStaffAccountForm() {
           <input type="number" id="staffWageField" value="${s.wage}" min="0" step="10" />
         </div>
       </div>
+      <label class="field-label">給与方式</label>
+      <select id="staffPayTypeField">
+        <option value="normal" ${s.insurance ? "" : "selected"}>通常（時給×時間のみ）</option>
+        <option value="insurance" ${s.insurance ? "selected" : ""}>雇用保険用（雇用保険料を控除）</option>
+      </select>
       <div style="display:flex;gap:8px;margin-top:12px">
         <button class="save-btn" style="flex:1" onclick="saveStaffAccount()">💾 保存</button>
         ${!state.isNewStaff && state.selectedName ? `<button class="remove-btn" onclick="deleteStaffAccount()">削除</button>` : ""}
