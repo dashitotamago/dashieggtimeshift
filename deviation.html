@@ -375,18 +375,42 @@ function changeMonth(delta) {
 function setTab(t) { state.tab = t; render(); }
 
 
-// 予算達成の集計: クローズ報告に保存された final(売上・予算・達成可否)を月ごとに数える
-function computeBudgetStats(values) {
+// 予算達成の集計: クローズ報告の final(売上・予算単価)と、打刻履歴の実労働時間で判定して月ごとに数える
+// 打刻履歴から「日付 → {名前: 実労働時間}」を作る
+function punchHoursByDate(punchValues) {
+  const out = {};
+  for (const key in (punchValues || {})) {
+    const parts = key.split(":");
+    if (parts.length < 3) continue;
+    const recs = punchValues[key];
+    if (!Array.isArray(recs) || !recs.length) continue;
+    const h = calcHoursForPunches(recs);
+    if (h <= 0) continue;
+    const d = parts[1], n = parts.slice(2).join(":");
+    (out[d] || (out[d] = {}))[n] = (out[d][n] || 0) + h;
+  }
+  return out;
+}
+// 予算達成の判定: 売上 ≧ 予算単価 × 打刻履歴の実労働時間(全員の合計)。その日の打刻が無い場合だけ、クローズ報告の記録で判定
+function judgeFinal(final, dayPunch) {
+  const H = dayPunch ? Object.values(dayPunch).reduce((a, b) => a + b, 0) : 0;
+  const unit = Number(final.budgetUnit) || 0;
+  if (H > 0 && unit > 0) return { ok: Number(final.sales) >= unit * H, hours: H, byPunch: true };
+  return { ok: !!final.achieved, hours: Number(final.hours) || 0, byPunch: false };
+}
+function computeBudgetStats(values, punchValues) {
   const byStaff = {};
+  const ph = punchHoursByDate(punchValues);
   let achieved = 0, total = 0;
   for (const key in values) {
     if (!key.endsWith(":close")) continue;
     const r = values[key];
     if (!r || !r.final || !(Number(r.final.budget) > 0)) continue;
     total++;
-    const ok = !!r.final.achieved;
+    const dayP = ph[key.split(":")[1]];
+    const ok = judgeFinal(r.final, dayP).ok;
     if (ok) achieved++;
-    const names = new Set((r.staffHours || []).filter((s) => s.name && Number(s.hours) > 0).map((s) => s.name));
+    const names = new Set(dayP ? Object.keys(dayP) : (r.staffHours || []).filter((s) => s.name && Number(s.hours) > 0).map((s) => s.name));
     names.forEach((n) => { const o = byStaff[n] || (byStaff[n] = { achieved: 0, worked: 0 }); o.worked++; if (ok) o.achieved++; });
   }
   return { byStaff, achieved, total };
@@ -428,7 +452,7 @@ async function loadMonth() {
   for (const key in subValues) subs[key.split(":").slice(2).join(":")] = subValues[key];
   state.allSubmissions = subs;
 
-  try { state.budgetStats = computeBudgetStats(l[`teijiReport:${mKey}-`] || {}); } catch (e) { state.budgetStats = { byStaff: {}, achieved: 0, total: 0 }; }
+  try { state.budgetStats = computeBudgetStats(l[`teijiReport:${mKey}-`] || {}, l[`punch:${mKey}`] || {}); } catch (e) { state.budgetStats = { byStaff: {}, achieved: 0, total: 0 }; }
 
   state.loading = false;
   await loadLateSummary();
